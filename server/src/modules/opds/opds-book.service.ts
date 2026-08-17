@@ -23,6 +23,7 @@ import {
 import { BookQueryBuilder } from '../book/book-query-builder.service';
 import type { ContentFilterRules, GroupRule } from '@bookorbit/types';
 import { buildContentFilterClauses } from '../../common/utils/content-filter-sql.utils';
+import { WorkflowFileResolverService } from '../workflow/workflow-file-resolver.service';
 
 type Db = NodePgDatabase<typeof schema>;
 
@@ -138,6 +139,7 @@ export class OpdsBookService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly queryBuilder: BookQueryBuilder,
+    private readonly workflowFileResolver: WorkflowFileResolverService,
   ) {}
 
   async getAccessibleLibraryIds(userId: number, isSuperuser = false): Promise<number[]> {
@@ -295,10 +297,10 @@ export class OpdsBookService {
 
     const hasNext = idRows.length > opts.limit;
     const ids = idRows.slice(0, opts.limit).map((row) => row.id);
-    return { rows: await this.fetchManifestRows(ids), hasNext };
+    return { rows: await this.fetchManifestRows(ids, userId), hasNext };
   }
 
-  private async fetchManifestRows(bookIds: number[]): Promise<OpdsManifestBookRow[]> {
+  private async fetchManifestRows(bookIds: number[], userId?: number): Promise<OpdsManifestBookRow[]> {
     if (bookIds.length === 0) return [];
 
     const [metaRows, authorRows, fileRows] = await Promise.all([
@@ -363,6 +365,23 @@ export class OpdsBookService {
         contentVersion: row.updatedAt,
       });
       filesByBook.set(row.bookId, list);
+    }
+
+    if (userId !== undefined) {
+      const substitutes = await this.workflowFileResolver.resolvePreferredOutputFilesForBooks(userId, bookIds);
+      for (const [substituteBookId, substitute] of substitutes) {
+        const list = filesByBook.get(substituteBookId);
+        if (list && list.length > 0) {
+          list[0] = {
+            id: substitute.id,
+            format: substitute.format,
+            sizeBytes: substitute.sizeBytes,
+            fileHash: substitute.fileHash,
+            filename: substitute.absolutePath.split('/').pop() ?? null,
+            contentVersion: list[0].contentVersion,
+          };
+        }
+      }
     }
 
     const idOrder = new Map(bookIds.map((id, index) => [id, index]));
@@ -443,7 +462,7 @@ export class OpdsBookService {
       clauses.push(...buildContentFilterClauses(contentFilters, this.db));
     }
     const where = and(...clauses);
-    return this.paginatedBookQuery(where!, 'recent', page, size);
+    return this.paginatedBookQuery(where!, 'recent', page, size, userId);
   }
 
   async getRandomBooks(userId: number, count: number, isSuperuser = false, contentFilters?: ContentFilterRules): Promise<OpdsBookEntry[]> {
@@ -465,7 +484,7 @@ export class OpdsBookService {
 
     const ids = idRows.map((row) => row.id);
     if (ids.length === 0) return [];
-    return this.fetchBookEntries(ids);
+    return this.fetchBookEntries(ids, userId);
   }
 
   async getDistinctAuthors(userId: number, isSuperuser = false, contentFilters?: ContentFilterRules): Promise<{ name: string; bookCount: number }[]> {
@@ -650,7 +669,25 @@ export class OpdsBookService {
     }
   }
 
-  async getBookFiles(bookId: number, fileId?: number): Promise<{ absolutePath: string; format: string; title: string; authorName: string } | null> {
+  async getBookFiles(
+    bookId: number,
+    fileId: number | undefined,
+    userId: number,
+  ): Promise<{ absolutePath: string; format: string; title: string; authorName: string } | null> {
+    if (!fileId) {
+      const substitute = await this.workflowFileResolver.resolvePreferredOutputFile(userId, bookId);
+      if (substitute) {
+        const [titleRow] = await this.db.select({ title: bookMetadata.title }).from(bookMetadata).where(eq(bookMetadata.bookId, bookId)).limit(1);
+        const authorName = await this.fetchPrimaryAuthorName(bookId);
+        return {
+          absolutePath: substitute.absolutePath,
+          format: substitute.format,
+          title: titleRow?.title ?? `book-${bookId}`,
+          authorName,
+        };
+      }
+    }
+
     const fileQuery = this.db
       .select({
         absolutePath: bookFiles.absolutePath,
@@ -666,6 +703,17 @@ export class OpdsBookService {
     const [file] = await fileQuery;
     if (!file) return null;
 
+    const authorName = await this.fetchPrimaryAuthorName(bookId);
+
+    return {
+      absolutePath: file.absolutePath,
+      format: file.format ?? 'unknown',
+      title: file.title ?? `book-${bookId}`,
+      authorName,
+    };
+  }
+
+  private async fetchPrimaryAuthorName(bookId: number): Promise<string> {
     const [authorRow] = await this.db
       .select({ name: authors.name })
       .from(bookAuthors)
@@ -673,13 +721,7 @@ export class OpdsBookService {
       .where(eq(bookAuthors.bookId, bookId))
       .orderBy(bookAuthors.displayOrder)
       .limit(1);
-
-    return {
-      absolutePath: file.absolutePath,
-      format: file.format ?? 'unknown',
-      title: file.title ?? `book-${bookId}`,
-      authorName: authorRow?.name ?? '',
-    };
+    return authorRow?.name ?? '';
   }
 
   private async buildSmartScopeWhere(
@@ -786,12 +828,13 @@ export class OpdsBookService {
 
     const entries = await this.fetchBookEntries(
       idRows.map((r) => r.id),
+      userId,
       options,
     );
     return { entries, total: Number(total) };
   }
 
-  private async fetchBookEntries(bookIds: number[], options: FetchBookEntriesOptions = {}): Promise<OpdsBookEntry[]> {
+  private async fetchBookEntries(bookIds: number[], userId?: number, options: FetchBookEntriesOptions = {}): Promise<OpdsBookEntry[]> {
     if (bookIds.length === 0) return [];
 
     const [metaRows, authorRows, fileRows, contextSeriesRows] = await Promise.all([
@@ -842,6 +885,16 @@ export class OpdsBookService {
       const list = filesByBook.get(row.bookId) ?? [];
       list.push({ id: row.id, format: row.format ?? 'unknown' });
       filesByBook.set(row.bookId, list);
+    }
+
+    if (userId !== undefined) {
+      const substitutes = await this.workflowFileResolver.resolvePreferredOutputFilesForBooks(userId, bookIds);
+      for (const [substituteBookId, substitute] of substitutes) {
+        const list = filesByBook.get(substituteBookId);
+        if (list && list.length > 0) {
+          list[0] = { id: substitute.id, format: substitute.format };
+        }
+      }
     }
 
     const idOrder = new Map(bookIds.map((id, i) => [id, i]));

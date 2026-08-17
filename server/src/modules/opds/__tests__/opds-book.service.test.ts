@@ -8,10 +8,11 @@ type BookPageResult = { entries: unknown[]; total: number };
 type TestableOpdsBookService = {
   buildCatalogSearchClause(q: string): unknown;
   buildReadStatusClause(userId: number, status: 'unread' | 'reading' | 'finished'): unknown;
-  fetchBookEntries(bookIds: number[], options?: unknown): Promise<unknown[]>;
+  fetchBookEntries(bookIds: number[], userId?: number, options?: unknown): Promise<unknown[]>;
   buildSmartScopeWhere(userId: number, smartScopeId: number, accessibleIds: number[], contentFilters?: unknown, q?: string): Promise<unknown>;
-  fetchManifestRows(bookIds: number[]): Promise<unknown[]>;
+  fetchManifestRows(bookIds: number[], userId?: number): Promise<unknown[]>;
   paginatedBookQuery(where: unknown, sortOrder: string, page: number, size: number, userId?: number, options?: unknown): Promise<BookPageResult>;
+  fetchPrimaryAuthorName(bookId: number): Promise<string>;
 };
 
 function testable(service: OpdsBookService): TestableOpdsBookService {
@@ -43,14 +44,23 @@ function makeDb(selectQueue: unknown[] = []) {
   };
 }
 
-function makeService(selectQueue: unknown[] = [], queryBuilderOverrides: Record<string, unknown> = {}) {
+function makeService(
+  selectQueue: unknown[] = [],
+  queryBuilderOverrides: Record<string, unknown> = {},
+  workflowFileResolverOverrides: Record<string, unknown> = {},
+) {
   const db = makeDb(selectQueue);
   const queryBuilder = {
     buildWhere: vi.fn().mockReturnValue(undefined),
     ...queryBuilderOverrides,
   };
-  const service = new OpdsBookService(db as never, queryBuilder as never);
-  return { service, db, queryBuilder };
+  const workflowFileResolver = {
+    resolvePreferredOutputFile: vi.fn().mockResolvedValue(null),
+    resolvePreferredOutputFilesForBooks: vi.fn().mockResolvedValue(new Map()),
+    ...workflowFileResolverOverrides,
+  };
+  const service = new OpdsBookService(db as never, queryBuilder as never, workflowFileResolver as never);
+  return { service, db, queryBuilder, workflowFileResolver };
 }
 
 function collectValues(value: unknown, seen = new WeakSet<object>()): unknown[] {
@@ -141,7 +151,7 @@ describe('OpdsBookService', () => {
     });
     // One extra row is fetched purely to answer hasNext without a count query.
     expect(chain.limit).toHaveBeenCalledWith(3);
-    expect(fetchSpy).toHaveBeenCalledWith([3, 7]);
+    expect(fetchSpy).toHaveBeenCalledWith([3, 7], 7);
   });
 
   it('returns an empty manifest page when the user can reach no library', async () => {
@@ -200,7 +210,7 @@ describe('OpdsBookService', () => {
     accessSpy.mockResolvedValueOnce([1]);
     fetchSpy.mockResolvedValueOnce([{ id: 11 }, { id: 10 }]);
     await expect(service.getRandomBooks(7, 2)).resolves.toEqual([{ id: 11 }, { id: 10 }]);
-    expect(fetchSpy).toHaveBeenCalledWith([11, 10]);
+    expect(fetchSpy).toHaveBeenCalledWith([11, 10], 7);
 
     const chains = (db.select as ReturnType<typeof vi.fn>).mock.results.map((r) => r.value as Record<string, unknown>);
     const orderBy = chains.at(-1)!['orderBy'] as ReturnType<typeof vi.fn>;
@@ -254,14 +264,48 @@ describe('OpdsBookService', () => {
   it('resolves getBookFiles with fallback formatting and title values', async () => {
     const { service } = makeService([[], [{ absolutePath: '/books/a.epub', format: null, title: null }], []]);
 
-    await expect(service.getBookFiles(7, 42)).resolves.toBeNull();
+    await expect(service.getBookFiles(7, 42, 3)).resolves.toBeNull();
 
-    await expect(service.getBookFiles(7)).resolves.toEqual({
+    await expect(service.getBookFiles(7, undefined, 3)).resolves.toEqual({
       absolutePath: '/books/a.epub',
       format: 'unknown',
       title: 'book-7',
       authorName: '',
     });
+  });
+
+  it('returns the preferred workflow output file in place of the primary file when no fileId is given', async () => {
+    const { service, workflowFileResolver } = makeService([[{ title: 'Dune' }], []], undefined, {
+      resolvePreferredOutputFile: vi.fn().mockResolvedValue({
+        id: 99,
+        absolutePath: '/data/workflow-output/7/1/output.epub',
+        format: 'epub',
+        sizeBytes: 4321,
+        fileHash: 'newhash',
+      }),
+    });
+
+    await expect(service.getBookFiles(7, undefined, 3)).resolves.toEqual({
+      absolutePath: '/data/workflow-output/7/1/output.epub',
+      format: 'epub',
+      title: 'Dune',
+      authorName: '',
+    });
+
+    expect(workflowFileResolver.resolvePreferredOutputFile).toHaveBeenCalledWith(3, 7);
+  });
+
+  it('bypasses workflow substitution when an explicit fileId is requested', async () => {
+    const { service, workflowFileResolver } = makeService([[{ absolutePath: '/books/a.epub', format: 'epub', title: 'Dune' }], []]);
+
+    await expect(service.getBookFiles(7, 42, 3)).resolves.toEqual({
+      absolutePath: '/books/a.epub',
+      format: 'epub',
+      title: 'Dune',
+      authorName: '',
+    });
+
+    expect(workflowFileResolver.resolvePreferredOutputFile).not.toHaveBeenCalled();
   });
 
   it('applies text search inside smartScope when q is provided', async () => {
@@ -318,7 +362,7 @@ describe('OpdsBookService', () => {
       entries: [{ id: 3 }, { id: 1 }],
       total: 2,
     });
-    expect(fetchSpy).toHaveBeenCalledWith([3, 1], {});
+    expect(fetchSpy).toHaveBeenCalledWith([3, 1], undefined, {});
   });
 
   it('builds read-status, format, and id filters and forwards the user id to pagination', async () => {
@@ -549,7 +593,7 @@ describe('OpdsBookService', () => {
       [{ bookId: 1, seriesId: 42, seriesName: 'Secondary Arc', seriesIndex: 3 }],
     ]);
 
-    await expect(testable(service).fetchBookEntries([1], { contextSeries: { seriesId: 42 } })).resolves.toEqual([
+    await expect(testable(service).fetchBookEntries([1], undefined, { contextSeries: { seriesId: 42 } })).resolves.toEqual([
       expect.objectContaining({
         id: 1,
         seriesId: 42,

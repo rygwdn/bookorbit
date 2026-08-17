@@ -3,16 +3,20 @@ import { ADMIN_TABS, ADMIN_TAB_INFO, normalizeAdminTab } from '../lib/admin-tabs
 
 describe('admin-tabs', () => {
   describe('ADMIN_TABS', () => {
-    it('contains exactly users, account activity, oidc, magic-links, and server-fonts', () => {
-      expect(ADMIN_TABS).toEqual(['users', 'account-activity', 'oidc', 'magic-links', 'server-fonts'])
+    it('contains exactly users, account activity, oidc, magic-links, server-fonts, and workflows', () => {
+      expect(ADMIN_TABS).toEqual(['users', 'account-activity', 'oidc', 'magic-links', 'server-fonts', 'workflows'])
     })
 
-    it('has length 5', () => {
-      expect(ADMIN_TABS.length).toBe(5)
+    it('has length 6', () => {
+      expect(ADMIN_TABS.length).toBe(6)
     })
 
     it('places server-fonts immediately after magic-links', () => {
       expect(ADMIN_TABS.indexOf('server-fonts')).toBe(ADMIN_TABS.indexOf('magic-links') + 1)
+    })
+
+    it('places workflows immediately after server-fonts', () => {
+      expect(ADMIN_TABS.indexOf('workflows')).toBe(ADMIN_TABS.indexOf('server-fonts') + 1)
     })
   })
 
@@ -50,6 +54,11 @@ describe('admin-tabs', () => {
     it('server-fonts entry has manage_app_settings permission', () => {
       expect(ADMIN_TAB_INFO['server-fonts'].permission).toBe('manage_app_settings')
       expect(ADMIN_TAB_INFO['server-fonts'].titleKey).toBe('titles.admin.server-fonts')
+    })
+
+    it('workflows entry has manage_workflows permission', () => {
+      expect(ADMIN_TAB_INFO.workflows.permission).toBe('manage_workflows')
+      expect(ADMIN_TAB_INFO.workflows.titleKey).toBe('titles.admin.workflows')
     })
   })
 
@@ -92,6 +101,10 @@ describe('admin-tabs', () => {
 
     it('returns server-fonts when given "server-fonts"', () => {
       expect(normalizeAdminTab('server-fonts')).toBe('server-fonts')
+    })
+
+    it('returns workflows when given "workflows"', () => {
+      expect(normalizeAdminTab('workflows')).toBe('workflows')
     })
 
     it('is case-sensitive (Users is not valid)', () => {

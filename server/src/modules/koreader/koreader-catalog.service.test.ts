@@ -223,6 +223,11 @@ function makeService(
     getCounts: vi.fn().mockResolvedValue({ authors: 812, series: 96, annotations: 40 }),
   };
 
+  const workflowFileResolver = {
+    resolvePreferredOutputFile: vi.fn().mockResolvedValue(null),
+    resolvePreferredOutputFilesForBooks: vi.fn().mockResolvedValue(new Map()),
+  };
+
   const service = new KoreaderCatalogService(
     opdsBookService as never,
     bookService as never,
@@ -238,6 +243,7 @@ function makeService(
       getDeviceFileNamingPattern: vi.fn().mockResolvedValue(deviceOrganization),
     } as never,
     pluginService as never,
+    workflowFileResolver as never,
     { appDataPath: '/data', bookDockPath: '/data/book-dock' },
   );
 
@@ -252,6 +258,7 @@ function makeService(
     browseCountsService,
     recommendationService,
     pluginService,
+    workflowFileResolver,
   };
 }
 
@@ -736,6 +743,31 @@ describe('KoreaderCatalogService', () => {
     expect(JSON.stringify(detail)).not.toContain('/books/dune.epub');
   });
 
+  it('substitutes preferred workflow output file into the primary file slot in getBookDetail', async () => {
+    const { service, workflowFileResolver } = makeService();
+    workflowFileResolver.resolvePreferredOutputFile.mockResolvedValueOnce({
+      id: 999,
+      absolutePath: '/data/workflow-output/10/1/output.kepub.epub',
+      format: 'kepub.epub',
+      sizeBytes: 9876,
+      fileHash: 'workhash',
+    });
+
+    const detail = await service.getBookDetail(makeUser({ id: 7 }), 10);
+
+    expect(workflowFileResolver.resolvePreferredOutputFile).toHaveBeenCalledWith(7, 10);
+    expect(detail.files).toEqual([
+      expect.objectContaining({
+        id: 999,
+        format: 'kepub.epub',
+        role: 'primary',
+        sizeBytes: 9876,
+        durationSeconds: null,
+        downloadUrl: '/api/v1/koreader/plugin/catalog/files/999/download',
+      }),
+    ]);
+  });
+
   it('normalizes catalog extensions once for format, placeholders, basename stripping, and fallback names', async () => {
     const { service, bookService } = makeService({
       fileNamingPattern: '{originalFilename}.{extension}',
@@ -855,6 +887,31 @@ describe('KoreaderCatalogService', () => {
     expect(reply.header).toHaveBeenCalledWith('Content-Length', 1234);
     expect(reply.type).toHaveBeenCalledWith('application/epub+zip');
     expect(mockCreateReadStream).toHaveBeenCalledWith('/books/dune.epub');
+  });
+
+  it('streams workflow_output files successfully without throwing NotFoundException', async () => {
+    const { service, bookService } = makeService();
+    const reply = makeReply();
+    bookService.verifyFileAccess.mockResolvedValueOnce({
+      id: 300,
+      role: 'workflow_output',
+      bookId: 10,
+      libraryId: 1,
+      absolutePath: '/data/workflow-output/10/1/output.epub',
+      format: 'epub',
+    });
+    bookService.resolveDownloadFilename.mockResolvedValueOnce('Dune - Workflow.epub');
+
+    await service.streamFile(makeUser({ permissions: [] }), 300, reply as never);
+
+    expect(bookService.verifyFileAccess).toHaveBeenCalledWith(300, expect.objectContaining({ permissions: [] }));
+    expect(reply.header).toHaveBeenCalledWith(
+      'Content-Disposition',
+      `attachment; filename="Dune - Workflow.epub"; filename*=UTF-8''Dune%20-%20Workflow.epub`,
+    );
+    expect(reply.header).toHaveBeenCalledWith('Content-Length', 1234);
+    expect(reply.type).toHaveBeenCalledWith('application/epub+zip');
+    expect(mockCreateReadStream).toHaveBeenCalledWith('/data/workflow-output/10/1/output.epub');
   });
 
   it('rejects non-content file downloads and missing thumbnails', async () => {

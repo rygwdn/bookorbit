@@ -477,6 +477,13 @@
       "when": 1786683893542,
       "tag": "0067_add_mangabaka_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1786834480738,
+      "tag": "0068_add_workflows",
+      "breakpoints": true
     }
   ]
 }

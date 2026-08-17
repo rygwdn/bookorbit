@@ -115,6 +115,12 @@ export enum AuditAction {
   EmailRecipientGroupDelete = "email.recipient_group.delete",
   EmailRecipientGroupMemberAdd = "email.recipient_group.member_add",
   EmailRecipientGroupMemberRemove = "email.recipient_group.member_remove",
+
+  WorkflowCreate = "workflow.create",
+  WorkflowUpdate = "workflow.update",
+  WorkflowDelete = "workflow.delete",
+  WorkflowRun = "workflow.run",
+  WorkflowPreferenceSet = "workflow.preference.set",
 }
 
 export enum AuditResource {
@@ -140,6 +146,7 @@ export enum AuditResource {
   OidcIdentity = "oidc_identity",
   MagicLinkToken = "magic_link_token",
   ReadingInsightsProfile = "reading_insights_profile",
+  Workflow = "workflow",
 }
 
 export interface AuditLogEntry {

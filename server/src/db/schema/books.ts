@@ -89,7 +89,7 @@ export const bookFiles = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
-    check('book_files_role_chk', sql`${t.role} in ('content', 'cover', 'metadata', 'supplement')`),
+    check('book_files_role_chk', sql`${t.role} in ('content', 'cover', 'metadata', 'supplement', 'workflow_output')`),
     check('book_files_size_bytes_nonnegative_chk', sql`${t.sizeBytes} is null or ${t.sizeBytes} >= 0`),
     check('book_files_duration_seconds_nonnegative_chk', sql`${t.durationSeconds} is null or ${t.durationSeconds} >= 0`),
   ],

@@ -271,7 +271,7 @@ export class OpdsController {
   ) {
     await this.opdsBookService.validateBookAccess(bookId, user.userId, user.isSuperuser, user.contentFilters);
 
-    const bookFiles = await this.opdsBookService.getBookFiles(bookId, fileId);
+    const bookFiles = await this.opdsBookService.getBookFiles(bookId, fileId, user.userId);
     if (!bookFiles) throw new NotFoundException('File not found');
 
     const { absolutePath, format } = bookFiles;
