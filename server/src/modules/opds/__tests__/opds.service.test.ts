@@ -504,6 +504,27 @@ describe('OpdsService', () => {
       expect(xml).not.toContain('<Vol. 1>');
     });
 
+    it('keeps the Optimized entry-title suffix escaped and well-formed for special-character titles', () => {
+      const service = makeService();
+      const book = sampleBook({ title: 'Rock & Roll <Vol. 1>', files: [{ id: 10, format: 'epub', optimized: true }] });
+      const xml = service.generateAcquisitionFeed(
+        'Catalog',
+        'urn:bookorbit:catalog',
+        [book],
+        1,
+        1,
+        50,
+        `${BASE}/catalog?page=1&size=50`,
+        'test-token',
+      );
+
+      expect(xml).toContain('<title>Rock &amp; Roll &lt;Vol. 1&gt; (Optimized)</title>');
+
+      const parsed = new XMLParser({ ignoreAttributes: false, isArray: (name) => name === 'entry' || name === 'link' }).parse(xml);
+      const entries = parsed.feed.entry as Array<Record<string, unknown>>;
+      expect(entries[0].title).toBe('Rock & Roll <Vol. 1> (Optimized)');
+    });
+
     it('escapes special characters in author names', () => {
       const service = makeService();
       const book = sampleBook({ authors: ["O'Brien & Sons"] });

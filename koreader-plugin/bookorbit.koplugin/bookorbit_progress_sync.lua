@@ -209,13 +209,19 @@ function ProgressSync:reconcileProgressBeforeBookSync(digest, on_done)
     self.pull_timestamp = UIManager:getElapsedTimeSinceBoot()
     self:rememberRemoteProgress(digest, body)
 
+    -- A 404 says the server holds no position for this document (unknown or not yet
+    -- linked): the same outcome as an empty success body. There is nothing to reconcile
+    -- and this device's progress should upload with the book.
+    if not body and err == 404 then
+        body = {}
+    end
+
     if not body then
         logger.dbg("BookOrbit: progress check before book sync failed:", err)
         Toast.show(_("Could not check BookOrbit's position"), { icon = "triangle-alert", timeout = 4 })
         on_done(true)
         return true
     end
-
     if not body.percentage then
         self:noteProgressCompared(digest)
         on_done(false)
@@ -408,6 +414,12 @@ function ProgressSync:getProgress(ensure_networking, interactive)
     end
     self.pull_timestamp = now
     self:rememberRemoteProgress(digest, body)
+
+    -- A 404 carries no remote progress either. Treating it as the empty success body keeps
+    -- an unknown or not-yet-linked document from surfacing as a sync error.
+    if not body and err == 404 then
+        body = {}
+    end
 
     if not body then
         if interactive then showSyncError() end

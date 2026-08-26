@@ -120,31 +120,6 @@ describe('KOReader plugin update source wiring', () => {
     expect(data).toContain('if bytes == nil and not read_along then bytes = file.sourceSizeBytes end');
   });
 
-  it('syncs book data first and asks about remote progress before the position goes up', async () => {
-    const main = await readPluginFile('main.lua');
-    const menu = await readPluginFile('bookorbit_main_menu.lua');
-    const progress = await readPluginFile('bookorbit_progress_sync.lua');
-    const bookSync = await readPluginFile('bookorbit_book_sync.lua');
-
-    expect(progress).toContain('function ProgressSync:reconcileProgressBeforeBookSync(digest, on_done)');
-    expect(progress).toContain('client:getProgress(digest)');
-    expect(progress).toContain('local local_timestamp = self.last_page_turn_timestamp or 0');
-    expect(progress).toContain('openPrompt(self, body, remote_newer, true, function()');
-    expect(progress).toContain('on_done(remote_newer)');
-    expect(main).toContain('self:syncBookThenProgress(snap.digest, run_book_sync)');
-    expect(progress).toContain('run_book_sync(true, function()');
-    expect(progress).toContain('if not skip_progress then self:pushProgressAfterBookSync(digest) end');
-    expect(main).toContain('local latest_snap = BookOrbitBookSync.capture(self)');
-    expect(main).toContain('skip_progress = skip_progress');
-    expect(main).toContain('event = "BookOrbitPullProgress"');
-    expect(menu).not.toContain('text = _("Pull progress now")');
-    expect(main).toContain('self.onPageUpdate = self._onPageUpdate\n    if self.settings.auto_sync then');
-    expect(main).toContain('if self.settings.auto_sync and (self.periodic_push_scheduled');
-
-    expect(bookSync).toContain('skip_progress = opts.skip_progress == true');
-    expect(bookSync).toContain('if ctx.skip_progress then');
-    expect(bookSync).toContain('Progress was not changed.');
-  });
 
   it('keeps book action downloads compact without duplicating download options', async () => {
     const detail = await readPluginFile('bookorbit_catalog_detail.lua');

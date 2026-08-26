@@ -2,9 +2,10 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
+  ForbiddenException,
   Headers,
+  NotFoundException,
   Param,
   ParseIntPipe,
   Patch,
@@ -75,7 +76,10 @@ export class KoreaderController {
   @Get('syncs/progress/:document')
   async getProgress(@CurrentUser() user: RequestUser, @Param('document') document: string) {
     const progress = await this.koreaderService.getProgress(user.id, document);
-    return progress ?? {};
+    // Unknown/empty documents answer 404 rather than an empty success body: kosync clients
+    // treat either as "no remote progress", and the 404 is the truthful status.
+    if (!progress) throw new NotFoundException('No progress found');
+    return progress;
   }
 
   // --- BookOrbit management endpoints (JWT auth) ---
