@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -82,11 +83,11 @@ describe('KoreaderController', () => {
     expect(koreaderService.getProgress).toHaveBeenCalledWith(7, 'abc');
   });
 
-  it('returns an empty object when no progress is found for a document', async () => {
+  it('answers a missing progress pull with a 404 rather than an empty success body', async () => {
     const { controller, koreaderService } = makeController();
     koreaderService.getProgress.mockResolvedValue(null);
 
-    await expect(controller.getProgress({ id: 7 } as never, 'abc')).resolves.toEqual({});
+    await expect(controller.getProgress({ id: 7 } as never, 'abc')).rejects.toThrow(new NotFoundException('No progress found'));
   });
 
   it('forwards credential management routes to the service', async () => {
