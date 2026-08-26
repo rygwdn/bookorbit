@@ -56,7 +56,7 @@ function mountBar() {
 
 describe('SelectionActionBar demo restriction', () => {
   beforeEach(() => {
-    permissionState.allowed = new Set(['library_edit_metadata', 'library_download', 'email_send', 'library_delete_books'])
+    permissionState.allowed = new Set(['library_edit_metadata', 'library_download', 'email_send', 'library_delete_books', 'run_workflows'])
     permissionState.demoRestricted = false
   })
 
@@ -73,6 +73,7 @@ describe('SelectionActionBar demo restriction', () => {
 
     expect(wrapper.find('[data-testid="action-bulk-refresh-metadata"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="action-bulk-re-extract-cover"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="action-bulk-run-workflow"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="action-bulk-lock-metadata"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="action-bulk-unlock-metadata"]').exists()).toBe(true)
   })
@@ -98,6 +99,7 @@ describe('SelectionActionBar demo restriction', () => {
     expect(wrapper.find('[data-testid="action-bulk-edit-metadata"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="action-bulk-refresh-metadata"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="action-bulk-re-extract-cover"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="action-bulk-run-workflow"]').exists()).toBe(false)
   })
 
   it('hides bulk-edit controls for demo-restricted accounts', () => {
@@ -109,6 +111,7 @@ describe('SelectionActionBar demo restriction', () => {
     expect(wrapper.find('[data-testid="action-bulk-edit-metadata"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="action-bulk-set-status"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="action-bulk-set-rating"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="action-bulk-run-workflow"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="action-bulk-metadata-menu"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="action-add-to-collection"]').exists()).toBe(true)
   })

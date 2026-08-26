@@ -44,6 +44,8 @@ import KoreaderFileNamingSettings from './KoreaderFileNamingSettings.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import { copyToClipboard } from '@/lib/clipboard'
 import { useKoreaderSync } from '@/features/koreader/composables/useKoreaderSync'
+import { useWorkflows } from '@/features/workflow/composables/useWorkflows'
+import WorkflowTargetDeliveryPreference from '@/features/workflow/components/WorkflowTargetDeliveryPreference.vue'
 import { useGlobalSearch } from '@/features/book/composables/useGlobalSearch'
 import { SECRET_INPUT_ATTRS } from '@/lib/secret-input'
 
@@ -123,6 +125,9 @@ const {
   setDeviceRetired,
   removeDevice,
 } = useKoreaderSync()
+
+const { workflows, refresh: refreshWorkflows } = useWorkflows()
+refreshWorkflows()
 
 const error = ref<string | null>(null)
 const showSetupForm = ref(false)
@@ -976,6 +981,12 @@ async function handleDownloadPlugin() {
                   {{ retiringDeviceId === device.deviceId ? t('settings.reader.koreader.retiring') : t('settings.reader.koreader.retire') }}
                 </Button>
               </div>
+              <WorkflowTargetDeliveryPreference
+                v-if="workflows.length > 0"
+                :target="{ type: 'koreader', deviceId: device.deviceId }"
+                :workflows="workflows"
+                class="ml-12"
+              />
             </div>
           </div>
 

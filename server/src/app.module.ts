@@ -15,6 +15,7 @@ import {
   migrationConfig,
   oidcRuntimeConfig,
   storageConfig,
+  workflowConfig,
 } from './config/config';
 import { validateEnv } from './config/env.validation';
 import { loggerConfig } from './common/logger.config';
@@ -88,6 +89,7 @@ import { BookDuplicatesModule } from './modules/book-duplicates/book-duplicates.
 import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 import { BookMoveModule } from './modules/book-move/book-move.module';
 import { AudiobookModule } from './modules/audiobook/audiobook.module';
+import { WorkflowModule } from './modules/workflow/workflow.module';
 
 @Module({
   imports: [
@@ -95,7 +97,7 @@ import { AudiobookModule } from './modules/audiobook/audiobook.module';
     ConfigModule.forRoot({
       isGlobal: true,
       validate: validateEnv,
-      load: [appConfig, dbConfig, authConfig, storageConfig, fileWriteConfig, emailConfig, migrationConfig, bookRequestConfig, oidcRuntimeConfig],
+      load: [appConfig, dbConfig, authConfig, storageConfig, fileWriteConfig, emailConfig, migrationConfig, bookRequestConfig, oidcRuntimeConfig, workflowConfig],
     }),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot({
@@ -173,6 +175,7 @@ import { AudiobookModule } from './modules/audiobook/audiobook.module';
     MaintenanceModule,
     BookMoveModule,
     BrowseCountsModule,
+    WorkflowModule,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },

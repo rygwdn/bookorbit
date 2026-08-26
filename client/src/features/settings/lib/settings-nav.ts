@@ -38,6 +38,7 @@ import {
   User,
   Users,
   Wrench,
+  Workflow,
   Zap,
 } from '@lucide/vue'
 import { Permission } from '@bookorbit/types'
@@ -476,6 +477,14 @@ export const SETTINGS_NAV: readonly SettingsNavGroup[] = [
         icon: DownloadCloud,
         keywords: 'request download client qbittorrent torrent magnet path mapping hardlink',
         isVisible: anyPermission(Permission.ManageAppSettings),
+      },
+      {
+        id: 'workflows',
+        routeName: 'settings-admin-workflows',
+        labelKey: 'settings.admin.tabs.workflows',
+        icon: Workflow,
+        keywords: 'workflow pipeline transform convert book file command',
+        isVisible: anyPermission(Permission.ManageWorkflows),
       },
       {
         id: 'book-dock',
