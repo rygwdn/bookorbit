@@ -3,7 +3,16 @@ import { computed, ref, watch } from 'vue'
 import { Loader2 } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
-import type { CreateWorkflowRequest, WorkflowDetail, WorkflowStepInput } from '@bookorbit/types'
+import {
+  DEFAULT_WORKFLOW_OUTPUT_FILENAME_PATTERN,
+  WORKFLOW_OUTPUT_EXAMPLE_METADATA,
+  WORKFLOW_OUTPUT_FILENAME_TOKENS,
+  resolveDownloadFilename,
+  validatePattern,
+  type CreateWorkflowRequest,
+  type WorkflowDetail,
+  type WorkflowStepInput,
+} from '@bookorbit/types'
 import { Button } from '@/components/ui/button'
 import WorkflowStepEditor from './WorkflowStepEditor.vue'
 
@@ -27,9 +36,27 @@ const name = ref('')
 const description = ref('')
 const outputFormat = ref('')
 const inputFormatsText = ref('')
+const outputFilenameTemplate = ref('')
 const steps = ref<WorkflowStepInput[]>([])
 
 const isEdit = computed(() => props.workflow !== null)
+
+const filenameTemplateTokens = WORKFLOW_OUTPUT_FILENAME_TOKENS.map((token) => `{${token.token}}`).join(', ')
+
+const filenameTemplateValid = computed(() => {
+  const trimmed = outputFilenameTemplate.value.trim()
+  return trimmed === '' || validatePattern(trimmed)
+})
+
+const filenameTemplatePreview = computed(() => {
+  if (!filenameTemplateValid.value) return ''
+  const pattern = outputFilenameTemplate.value.trim() || DEFAULT_WORKFLOW_OUTPUT_FILENAME_PATTERN
+  return (
+    resolveDownloadFilename(pattern, WORKFLOW_OUTPUT_EXAMPLE_METADATA, WORKFLOW_OUTPUT_EXAMPLE_METADATA['extension']!, {
+      sanitizeForCrossPlatform: true,
+    }) ?? ''
+  )
+})
 
 const inputFormats = computed(() =>
   inputFormatsText.value
@@ -44,7 +71,8 @@ const canSubmit = computed(
     name.value.trim().length > 0 &&
     /^[a-z0-9]{1,20}$/.test(outputFormat.value.trim()) &&
     steps.value.length > 0 &&
-    steps.value.every((step) => step.command.trim().length > 0),
+    steps.value.every((step) => step.command.trim().length > 0) &&
+    filenameTemplateValid.value,
 )
 
 watch(
@@ -56,6 +84,7 @@ watch(
     description.value = workflow?.description ?? ''
     outputFormat.value = workflow?.outputFormat ?? ''
     inputFormatsText.value = workflow?.inputFormats.join(', ') ?? ''
+    outputFilenameTemplate.value = workflow?.outputFilenameTemplate ?? ''
     steps.value = workflow
       ? workflow.steps.map((step) => ({
           command: step.command,
@@ -84,11 +113,11 @@ function handleSubmit(): void {
     description: description.value.trim() === '' ? null : description.value.trim(),
     outputFormat: outputFormat.value.trim().toLowerCase(),
     inputFormats: inputFormats.value,
+    outputFilenameTemplate: outputFilenameTemplate.value.trim() === '' ? null : outputFilenameTemplate.value.trim(),
     steps: steps.value,
   })
 }
 </script>
-
 <template>
   <DialogRoot :open="props.open" @update:open="handleOpenChange">
     <DialogPortal>
@@ -147,6 +176,30 @@ function handleSubmit(): void {
                 class="input-field w-full"
               />
             </div>
+          </div>
+
+          <div>
+            <label for="workflow-output-filename-template" class="mb-1 block text-sm font-medium text-foreground">
+              {{ t('settings.admin.workflows.formDialog.outputFilenameTemplate') }}
+              <span class="font-normal text-muted-foreground">{{ t('settings.admin.workflows.formDialog.optional') }}</span>
+            </label>
+            <input
+              id="workflow-output-filename-template"
+              v-model="outputFilenameTemplate"
+              type="text"
+              maxlength="500"
+              :placeholder="t('settings.admin.workflows.formDialog.outputFilenameTemplatePlaceholder')"
+              class="input-field w-full"
+            />
+            <p class="mt-1 text-xs text-muted-foreground">
+              {{ t('settings.admin.workflows.formDialog.outputFilenameTemplateHint', { tokens: filenameTemplateTokens }) }}
+            </p>
+            <p v-if="!filenameTemplateValid" role="alert" class="mt-1 text-sm text-destructive">
+              {{ t('settings.admin.workflows.formDialog.outputFilenameTemplateInvalid') }}
+            </p>
+            <p v-else class="mt-1 text-xs text-muted-foreground">
+              {{ t('settings.admin.workflows.formDialog.outputFilenameTemplatePreview', { filename: filenameTemplatePreview }) }}
+            </p>
           </div>
 
           <div>

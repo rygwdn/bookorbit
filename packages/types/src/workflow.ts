@@ -16,16 +16,40 @@ export type WorkflowSummary = {
   description: string | null;
   outputFormat: string;
   inputFormats: string[];
+  outputFilenameTemplate: string | null;
   createdAt: string;
   updatedAt: string;
 };
 export type WorkflowDetail = WorkflowSummary & { steps: WorkflowStep[] };
+
+export const DEFAULT_WORKFLOW_OUTPUT_FILENAME_PATTERN = "{title} - {workflow}";
+
+export const WORKFLOW_OUTPUT_FILENAME_TOKENS = [
+  { token: "title", description: "Book title" },
+  { token: "authors", description: "Author(s), comma-separated" },
+  { token: "series", description: "Series name" },
+  { token: "seriesIndex", description: "Series index (zero-padded)" },
+  { token: "workflow", description: "Workflow name" },
+  { token: "originalFilename", description: "Original source filename (without extension)" },
+  { token: "extension", description: "Output file extension (without dot)" },
+] as const;
+
+export const WORKFLOW_OUTPUT_EXAMPLE_METADATA: Record<string, string> = {
+  title: "Neuromancer",
+  authors: "William Gibson",
+  series: "Sprawl",
+  seriesIndex: "01",
+  workflow: "Optimize for Kobo",
+  originalFilename: "neuromancer",
+  extension: "epub",
+};
 
 export type CreateWorkflowRequest = {
   name: string;
   description: string | null;
   outputFormat: string;
   inputFormats: string[];
+  outputFilenameTemplate: string | null;
   steps: WorkflowStepInput[];
 };
 export type UpdateWorkflowRequest = CreateWorkflowRequest;

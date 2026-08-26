@@ -1,7 +1,28 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, ValidateNested } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  ValidateNested,
+  ValidateBy,
+} from 'class-validator';
 
+import { validatePattern } from '@bookorbit/types';
 import { WorkflowStepDto } from './workflow-step.dto';
+
+const IsWorkflowOutputFilenamePattern = () =>
+  ValidateBy({
+    name: 'isWorkflowOutputFilenamePattern',
+    validator: {
+      validate: (value: unknown) => typeof value === 'string' && validatePattern(value),
+      defaultMessage: () => 'Pattern contains invalid characters',
+    },
+  });
 
 export class CreateWorkflowDto {
   @IsString()
@@ -22,6 +43,12 @@ export class CreateWorkflowDto {
   @IsArray()
   @IsString({ each: true })
   inputFormats?: string[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @IsWorkflowOutputFilenamePattern()
+  outputFilenameTemplate?: string | null;
 
   @IsArray()
   @ArrayMinSize(1)

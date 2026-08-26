@@ -1,13 +1,20 @@
 import { execFile } from 'child_process';
 import { copyFile, mkdir, mkdtemp, rename, rm, stat, unlink } from 'fs/promises';
 import { tmpdir } from 'os';
-import { dirname, extname, join } from 'path';
+import { basename, dirname, extname, join } from 'path';
 import { promisify } from 'util';
 
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import type { BookWorkflowRunStatus, BookWorkflowStatus, WorkflowDetail, WorkflowTemplateKey } from '@bookorbit/types';
+import {
+  DEFAULT_WORKFLOW_OUTPUT_FILENAME_PATTERN,
+  resolveDownloadFilename,
+  type BookWorkflowRunStatus,
+  type BookWorkflowStatus,
+  type WorkflowDetail,
+  type WorkflowTemplateKey,
+} from '@bookorbit/types';
 import { sanitizeLogValue } from '../../common/utils/log-sanitize.utils';
 import type { BookWorkflowOutput } from '../../db/schema';
 import { computeFileHash } from '../scanner/lib/hash';
@@ -239,7 +246,21 @@ export class WorkflowRunnerService {
           currentFormat = step.outputExtension ?? currentFormat;
         }
 
-        const targetPath = join(this.appDataPath, 'workflow-output', String(freshRow.bookId), `${freshRow.workflowId}.${currentFormat}`);
+        const sourceStem = basename(templateContext.sourceFile.absolutePath, extname(templateContext.sourceFile.absolutePath));
+        const filenameTokens: Record<string, string> = {
+          title: templateContext.title,
+          authors: templateContext.authors,
+          series: templateContext.series,
+          workflow: workflow.name,
+          originalFilename: sourceStem,
+          extension: currentFormat,
+        };
+        const filenamePattern = workflow.outputFilenameTemplate?.trim() || DEFAULT_WORKFLOW_OUTPUT_FILENAME_PATTERN;
+        const resolvedFilename =
+          resolveDownloadFilename(filenamePattern, filenameTokens, currentFormat, { sanitizeForCrossPlatform: true }) ??
+          `${freshRow.workflowId}.${currentFormat}`;
+        const outputDir = join(this.appDataPath, 'workflow-output', String(freshRow.bookId), String(freshRow.workflowId));
+        const targetPath = join(outputDir, resolvedFilename);
 
         if (freshRow.bookFileId) {
           const existingFile = await this.runRepo.findBookFileById(freshRow.bookFileId);
@@ -248,6 +269,10 @@ export class WorkflowRunnerService {
           }
         }
 
+        // This directory is exclusively owned by this (book, workflow) pair, so clearing it
+        // before each write avoids leaving a stale file behind when the resolved filename
+        // changes between runs (e.g. the book's title was edited).
+        await rm(outputDir, { recursive: true, force: true }).catch(() => {});
         await moveFile(currentInputPath, targetPath);
         const stats = await stat(targetPath, { bigint: true });
         const newFileHash = await computeFileHash(targetPath);

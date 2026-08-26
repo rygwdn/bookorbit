@@ -95,6 +95,7 @@ export class WorkflowService {
           description: dto.description ?? null,
           outputFormat: dto.outputFormat,
           inputFormats: dto.inputFormats ?? null,
+          outputFilenameTemplate: dto.outputFilenameTemplate?.trim() || null,
           createdBy: user.id,
         },
         dto.steps.map(toStepInsert),
@@ -120,6 +121,7 @@ export class WorkflowService {
           description: dto.description ?? null,
           outputFormat: dto.outputFormat,
           inputFormats: dto.inputFormats ?? null,
+          outputFilenameTemplate: dto.outputFilenameTemplate?.trim() || null,
         },
         dto.steps.map(toStepInsert),
       );

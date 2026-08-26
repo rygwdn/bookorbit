@@ -20,6 +20,7 @@ const sampleWorkflow: WorkflowDetail = {
   description: 'Shrinks images',
   outputFormat: 'epub',
   inputFormats: ['epub', 'mobi'],
+  outputFilenameTemplate: null,
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
   steps: [
@@ -67,6 +68,7 @@ describe('useWorkflows', () => {
       description: null,
       outputFormat: 'epub',
       inputFormats: [],
+      outputFilenameTemplate: null,
       steps: [{ command: 'echo', args: [], outputExtension: null, inPlace: false, timeoutSeconds: 300 }],
     }
     vi.mocked(apiModule.createWorkflow).mockResolvedValueOnce(sampleWorkflow)

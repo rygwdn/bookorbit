@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { basename, dirname, join } from 'path';
 
 import type { ConfigService } from '@nestjs/config';
 import type { WorkflowDetail } from '@bookorbit/types';
@@ -51,6 +51,7 @@ describe('WorkflowRunnerService', () => {
     description: 'Copies file',
     outputFormat: 'epub',
     inputFormats: ['epub'],
+    outputFilenameTemplate: null,
     steps: [
       {
         id: 1,
@@ -72,6 +73,7 @@ describe('WorkflowRunnerService', () => {
     description: 'Runs non-existent binary',
     outputFormat: 'epub',
     inputFormats: ['epub'],
+    outputFilenameTemplate: null,
     steps: [
       {
         id: 2,
@@ -237,6 +239,10 @@ describe('WorkflowRunnerService', () => {
     expect(createdFile.format).toBe('epub');
     expect(createdFile.fileHash).toBeTruthy();
 
+    // Verify filename is resolved from the default naming template, in a workflow-owned subfolder
+    expect(basename(createdFile.absolutePath)).toBe('Dune - Copy Pipeline.epub');
+    expect(dirname(createdFile.absolutePath)).toBe(join(appDataPath, 'workflow-output', String(bookId), String(workflowId)));
+
     // Verify on-disk output exists and content matches
     const diskContent = await readFile(createdFile.absolutePath, 'utf8');
     expect(diskContent).toBe('initial source file content for testing');
@@ -321,6 +327,67 @@ describe('WorkflowRunnerService', () => {
     // Verify disk content was updated
     const diskContent = await readFile(updatedBookFile.absolutePath, 'utf8');
     expect(diskContent).toBe('updated source file content for rerun test');
+  });
+
+  it('(d) uses a custom outputFilenameTemplate and removes the stale file when the resolved name changes between reruns', async () => {
+    const bookId = 1;
+    const workflowId = 10;
+    const runId = 50;
+
+    const customTemplateWorkflow: WorkflowDetail = {
+      ...copyWorkflow,
+      outputFilenameTemplate: '{title}',
+    };
+    mockWorkflowRepo.findById.mockResolvedValue(customTemplateWorkflow);
+    const templateContext: WorkflowTemplateContextInfo = {
+      title: 'Dune',
+      authors: 'Frank Herbert',
+      series: 'Dune',
+      libraryFolderId: 7,
+      sourceFile: {
+        id: 10,
+        absolutePath: sourceFilePath,
+        format: 'epub',
+        fileHash: 'initialhash123',
+      },
+    };
+    mockRunRepo.findTemplateContext.mockResolvedValue(templateContext);
+
+    runOutputsStore.set(runId, {
+      id: runId,
+      bookId,
+      workflowId,
+      bookFileId: null,
+      sourceBookFileId: null,
+      sourceFileHash: null,
+      status: 'pending',
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await service.processRun(runId);
+
+    const firstRunOutput = runOutputsStore.get(runId)!;
+    const firstBookFile = bookFilesStore.get(firstRunOutput.bookFileId!)!;
+    expect(basename(firstBookFile.absolutePath)).toBe('Dune.epub');
+
+    // Book title changes and the workflow reruns: the resolved filename changes too
+    templateContext.title = 'Dune Messiah';
+    runOutputsStore.set(runId, { ...firstRunOutput, status: 'pending' });
+
+    await service.processRun(runId);
+
+    const secondRunOutput = runOutputsStore.get(runId)!;
+    expect(secondRunOutput.status).toBe('success');
+    const secondBookFile = bookFilesStore.get(secondRunOutput.bookFileId!)!;
+    expect(basename(secondBookFile.absolutePath)).toBe('Dune Messiah.epub');
+    expect(dirname(secondBookFile.absolutePath)).toBe(dirname(firstBookFile.absolutePath));
+
+    // The stale, previously named file must not be left behind in the workflow-owned directory
+    await expect(readFile(firstBookFile.absolutePath, 'utf8')).rejects.toThrow();
   });
 
   it('(c) step with non-existent command leaves prior successful output untouched and sets status failed', async () => {

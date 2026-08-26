@@ -11,6 +11,7 @@ export const workflows = pgTable('workflows', {
   description: text('description'),
   outputFormat: varchar('output_format', { length: 20 }).notNull(),
   inputFormats: text('input_formats').array(),
+  outputFilenameTemplate: varchar('output_filename_template', { length: 500 }),
   createdBy: integer('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true })

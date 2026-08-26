@@ -125,6 +125,7 @@ function toWorkflowDetail(row: Workflow, steps: WorkflowStep[]): WorkflowDetail 
     description: row.description ?? null,
     outputFormat: row.outputFormat,
     inputFormats: row.inputFormats ?? [],
+    outputFilenameTemplate: row.outputFilenameTemplate ?? null,
     steps,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
