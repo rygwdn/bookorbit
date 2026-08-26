@@ -21,6 +21,9 @@ const tabs = computed<{ label: string; tab: BookDetailTab }[]>(() => {
   result.push({ label: t('book.detail.tabs.files'), tab: 'files' })
   result.push({ label: t('book.detail.tabs.readingLog'), tab: 'reading-log' })
   result.push({ label: t('book.detail.tabs.highlights'), tab: 'highlights' })
+  if (hasPermission('run_workflows')) {
+    result.push({ label: t('book.detail.tabs.workflows'), tab: 'workflows' })
+  }
   return result
 })
 

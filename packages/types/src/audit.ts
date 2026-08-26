@@ -153,6 +153,11 @@ export enum AuditAction {
   MaintenanceMissingBooksClean = "maintenance.missing_books.clean",
   MaintenanceBrokenCoversClean = "maintenance.broken_covers.clean",
   MaintenanceOrphanedCoversClean = "maintenance.orphaned_covers.clean",
+  WorkflowCreate = "workflow.create",
+  WorkflowUpdate = "workflow.update",
+  WorkflowDelete = "workflow.delete",
+  WorkflowRun = "workflow.run",
+  WorkflowPreferenceSet = "workflow.preference.set",
 }
 
 export enum AuditResource {
@@ -183,6 +188,7 @@ export enum AuditResource {
   OidcIdentity = "oidc_identity",
   MagicLinkToken = "magic_link_token",
   ReadingInsightsProfile = "reading_insights_profile",
+  Workflow = "workflow",
 }
 
 export interface AuditLogEntry {

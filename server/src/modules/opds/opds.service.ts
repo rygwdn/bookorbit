@@ -201,9 +201,8 @@ export class OpdsService {
 
     for (const file of book.files) {
       const mime = fileMimeType(file.format);
-      lines.push(
-        `  ${xmlLink('http://opds-spec.org/acquisition', `${BASE}/${book.id}/download?fileId=${file.id}`, mime, file.format.toUpperCase())}`,
-      );
+      const label = `${file.format.toUpperCase()}${file.optimized ? ' (Optimized)' : ''}`;
+      lines.push(`  ${xmlLink('http://opds-spec.org/acquisition', `${BASE}/${book.id}/download?fileId=${file.id}`, mime, label)}`);
     }
 
     lines.push('</entry>');

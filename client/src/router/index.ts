@@ -91,6 +91,7 @@ const ADMIN_ROUTES: Record<AdminTab, string> = {
   oidc: 'settings-admin-oidc',
   'server-fonts': 'settings-admin-server-fonts',
   tts: 'settings-admin-tts',
+  workflows: 'settings-admin-workflows',
 }
 
 const SYSTEM_ROUTES: Record<SystemTab, string> = {
@@ -507,6 +508,13 @@ export const routes: RouteRecordRaw[] = [
             name: 'settings-admin-tts',
             component: () => import('@/features/tts/TtsAdminSettings.vue'),
             meta: { maxWidth: 'max-w-4xl', title: () => t('titles.admin.tts') },
+          },
+          {
+            path: 'admin/workflows',
+            name: 'settings-admin-workflows',
+            component: () => import('@/features/settings/WorkflowsSettings.vue'),
+            props: { embedded: true },
+            meta: { maxWidth: 'max-w-3xl', title: () => t('titles.admin.workflows') },
           },
           {
             path: 'admin/book-dock',

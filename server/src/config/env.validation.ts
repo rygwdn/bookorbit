@@ -80,6 +80,7 @@ const envSchema = z.object({
   AUDIOLESS_EPUB_MAX_SOURCE_ENTRIES: z.coerce.number().int().positive().optional(),
   AUDIOLESS_EPUB_MAX_METADATA_BYTES: z.coerce.number().int().positive().optional(),
   AUDIOLESS_EPUB_MAX_OUTPUT_BYTES: z.coerce.number().int().positive().optional(),
+  WORKFLOW_RUN_CONCURRENCY: z.coerce.number().int().positive().optional(),
   CLIENT_URL: z.string().url().optional(),
   APP_URL: z.string().url().default('http://localhost:5173'),
   TRUST_PROXY: trustProxyEnv(),

@@ -1358,7 +1358,8 @@
         "magic-links": "Magic Links",
         "oidc": "OIDC / SSO",
         "tts": "Text-to-Speech",
-        "server-fonts": "Server Fonts"
+        "server-fonts": "Server Fonts",
+        "workflows": "Workflows"
       },
       "tts": {
         "title": "Providers",
@@ -1459,6 +1460,77 @@
         "listLabel": "Server fonts",
         "noFontsYet": "No server fonts yet",
         "noFontsHint": "Fonts you add here appear in every user's reader."
+      },
+      "workflows": {
+        "title": "Workflows",
+        "subtitle": "Define chained command-line pipelines that transform a book's file, such as shrinking images for an e-ink device.",
+        "listLabel": "Workflows",
+        "noWorkflowsYet": "No workflows yet",
+        "noWorkflowsHint": "Create a workflow to let users generate optimized book variants.",
+        "newWorkflow": "New workflow",
+        "edit": "Edit workflow",
+        "delete": "Delete workflow",
+        "anyFormat": "any format",
+        "summary": "{steps} step(s) - {input} to {output}",
+        "errors": {
+          "save": "Failed to save workflow",
+          "delete": "Failed to delete workflow"
+        },
+        "delivery": {
+          "createError": "Failed to create delivery preference",
+          "inlineTitle": "Auto-deliver workflow output",
+          "inlineHint": "Automatically deliver a workflow's output through this account or device instead of the original file.",
+          "inlineEmpty": "No workflow auto-delivery configured.",
+          "inlineNone": "None (deliver original file)"
+        },
+        "deleteDialog": {
+          "title": "Delete workflow",
+          "description": "This permanently deletes the workflow and its run history for every book. Existing output files are not removed automatically.",
+          "confirm": "Delete",
+          "deleting": "Deleting..."
+        },
+        "formDialog": {
+          "createTitle": "New workflow",
+          "editTitle": "Edit workflow",
+          "description": "Description",
+          "name": "Name",
+          "outputFormat": "Output format",
+          "outputFormatPlaceholder": "e.g. epub",
+          "inputFormats": "Input formats",
+          "inputFormatsPlaceholder": "e.g. epub, cbz (leave blank for any)",
+          "optional": "(optional)",
+          "outputFilenameTemplate": "Output filename",
+          "outputFilenameTemplateHint": "Controls the filename of the workflow's output file. Available tokens: {tokens}.",
+          "outputFilenameTemplatePlaceholder": "e.g. {title} - {workflow}",
+          "outputFilenameTemplatePreview": "Example: {filename}",
+          "outputFilenameTemplateInvalid": "Pattern contains invalid characters",
+          "steps": "Steps",
+          "create": "Create",
+          "save": "Save",
+          "saving": "Saving..."
+        },
+        "stepEditor": {
+          "stepLabel": "Step {number}",
+          "moveUp": "Move step up",
+          "moveDown": "Move step down",
+          "removeStep": "Remove step",
+          "addStep": "Add step",
+          "command": "Command",
+          "commandPlaceholder": "e.g. convert",
+          "args": "Arguments",
+          "argPlaceholder": "Argument {number}",
+          "addArg": "Add argument",
+          "removeArg": "Remove argument",
+          "argsHint": "Each argument is a separate value. Available placeholders (wrap in double curly braces): input, output, workDir, title, authors, series, format, bookId.",
+          "shellMode": "Edit as shell command",
+          "structuredMode": "Edit arguments separately",
+          "shellPlaceholder": "e.g. convert --quality 80 '{'{'}{'{'}input{'}'}{'}'}' '{'{'}{'{'}output{'}'}{'}'}'",
+          "outputExtension": "Output extension",
+          "outputExtensionPlaceholder": "e.g. jpg",
+          "timeoutSeconds": "Timeout (seconds)",
+          "inPlace": "Modify the file in place (no output extension)",
+          "emptyState": "No steps yet. Add at least one step."
+        }
       }
     },
     "common": {
@@ -4323,7 +4395,8 @@
       "Series": "Series",
       "OidcIdentity": "OIDC identity",
       "MagicLinkToken": "Magic link",
-      "ReadingInsightsProfile": "Reading insights profile"
+      "ReadingInsightsProfile": "Reading insights profile",
+      "Workflow": "Workflow"
     },
     "actionLabels": {
       "AuthRegister": "Register account",
@@ -4457,7 +4530,12 @@
       "EmailRecipientGroupMemberRemove": "Remove recipient from group",
       "MaintenanceMissingBooksClean": "Cleaned missing books",
       "MaintenanceBrokenCoversClean": "Cleaned broken covers",
-      "MaintenanceOrphanedCoversClean": "Cleaned orphaned cover folders"
+      "MaintenanceOrphanedCoversClean": "Cleaned orphaned cover folders",
+      "WorkflowCreate": "Create workflow",
+      "WorkflowUpdate": "Update workflow",
+      "WorkflowDelete": "Delete workflow",
+      "WorkflowRun": "Run workflow",
+      "WorkflowPreferenceSet": "Set preferred workflow"
     }
   },
   "auth": {
@@ -5126,7 +5204,8 @@
         "editMetadata": "Edit Metadata",
         "files": "Files",
         "readingLog": "Reading Log",
-        "highlights": "Highlights"
+        "highlights": "Highlights",
+        "workflows": "Workflows"
       },
       "discover": {
         "moreInSeries": "More in Series",
@@ -5843,6 +5922,26 @@
           "colour": "By colour",
           "source": "By source"
         }
+      },
+      "workflows": {
+        "empty": "No workflows have been created yet.",
+        "neverRun": "Never run",
+        "status": {
+          "pending": "Pending",
+          "running": "Running",
+          "success": "Success",
+          "failed": "Failed"
+        },
+        "stale": "Stale",
+        "run": "Run",
+        "running": "Running...",
+        "preference": {
+          "label": "Preferred output for this book",
+          "none": "None (original file)"
+        },
+        "loadError": "Failed to load workflows",
+        "runError": "Failed to start workflow run",
+        "preferenceError": "Failed to update preferred workflow"
       },
       "readingLog": {
         "resetReadingState": "Reset reading state",
@@ -7478,6 +7577,7 @@
       "setField": "Set field",
       "refreshMetadata": "Refresh metadata",
       "reExtractCover": "Re-extract cover",
+      "runWorkflow": "Run workflow",
       "metadataLock": "Metadata lock",
       "lockAll": "Lock all",
       "unlockAll": "Unlock all",
@@ -10409,7 +10509,8 @@
         "edit": "Edit · {base}",
         "files": "Files · {base}",
         "readingLog": "Reading Log · {base}",
-        "highlights": "Highlights · {base}"
+        "highlights": "Highlights · {base}",
+        "workflows": "Workflows · {base}"
       }
     },
     "bookDock": {
@@ -11388,6 +11489,35 @@
       "removeFailed": "Could not remove the show from that collection."
     }
   },
+  "workflow": {
+    "bulkRun": {
+      "title": "{count, plural, =0 {Run workflow} one {Run workflow on # book} other {Run workflow on # books}}",
+      "workflowLabel": "Workflow",
+      "workflowPlaceholder": "Select a workflow...",
+      "noWorkflows": "No workflows have been created yet.",
+      "loadingWorkflows": "Loading workflows…",
+      "runButton": "Run",
+      "running": "Running...",
+      "progress": "{processed} / {total} processed ({percent}%)",
+      "failures": {
+        "heading": "{count, plural, one {# failure} other {# failures}}",
+        "showingLatest": "Showing latest {shown} of {total}"
+      },
+      "status": {
+        "pending": "Pending",
+        "running": "Running",
+        "success": "Success",
+        "failed": "Failed"
+      },
+      "toast": {
+        "success": "{queued, plural, =0 {No books were queued} one {Queued # book} other {Queued # books}}",
+        "warning": "{queued, plural, =0 {No books were queued} one {Queued # book} other {Queued # books}}, skipped {skipped}"
+      },
+      "loadError": "Failed to load workflows",
+      "runError": "Failed to run workflow",
+      "cancel": "Cancel"
+    }
+  },
   "titles": {
     "dashboard": "Dashboard",
     "libraries": "Libraries",
@@ -11465,7 +11595,8 @@
       "magic-links": "Magic Links",
       "oidc": "OIDC / SSO",
       "server-fonts": "Server Fonts",
-      "tts": "Text-to-Speech"
+      "tts": "Text-to-Speech",
+      "workflows": "Workflows"
     },
     "system": {
       "file-naming": "File Naming",

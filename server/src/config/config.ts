@@ -55,6 +55,10 @@ export const audiolessEpubConfig = registerAs('audiolessEpub', () => ({
   maxOutputBytes: parsePositiveInteger(process.env.AUDIOLESS_EPUB_MAX_OUTPUT_BYTES, 2 * 1024 * 1024 * 1024),
 }));
 
+export const workflowConfig = registerAs('workflow', () => ({
+  runConcurrency: parsePositiveInteger(process.env.WORKFLOW_RUN_CONCURRENCY, 2),
+}));
+
 export const emailConfig = registerAs('email', () => ({
   encryptionKey: process.env.EMAIL_ENCRYPTION_KEY ?? '',
 }));

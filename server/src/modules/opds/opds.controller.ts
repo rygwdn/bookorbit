@@ -4,6 +4,7 @@ import {
   DefaultValuePipe,
   Get,
   Headers,
+  Logger,
   NotFoundException,
   Param,
   ParseIntPipe,
@@ -35,6 +36,7 @@ import { BookService } from '../book/book.service';
 @Public()
 @UseGuards(OpdsEnabledGuard, OpdsAuthGuard)
 export class OpdsController {
+  private readonly logger = new Logger(OpdsController.name);
   private readonly appDataPath: string;
 
   constructor(
@@ -133,6 +135,7 @@ export class OpdsController {
       filters,
       user.isSuperuser,
       user.contentFilters,
+      this.workflowTargetForOpdsUser(user),
     );
 
     const selfParams = new URLSearchParams();
@@ -169,6 +172,7 @@ export class OpdsController {
       clampedSize,
       user.isSuperuser,
       user.contentFilters,
+      this.workflowTargetForOpdsUser(user),
     );
     const selfPath = `/api/v1/opds/recent?page=${clampedPage}&size=${clampedSize}`;
     const xml = this.opdsService.generateAcquisitionFeed(
@@ -186,7 +190,13 @@ export class OpdsController {
 
   @Get('surprise')
   async surprise(@OpdsUser() user: OpdsRequestUser, @Res() reply: FastifyReply) {
-    const entries = await this.opdsBookService.getRandomBooks(user.userId, 25, user.isSuperuser, user.contentFilters);
+    const entries = await this.opdsBookService.getRandomBooks(
+      user.userId,
+      25,
+      user.isSuperuser,
+      user.contentFilters,
+      this.workflowTargetForOpdsUser(user),
+    );
     const xml = this.opdsService.generateAcquisitionFeed(
       'Random Books',
       'urn:bookorbit:surprise',
@@ -271,7 +281,7 @@ export class OpdsController {
   ) {
     await this.opdsBookService.validateBookAccess(bookId, user.userId, user.isSuperuser, user.contentFilters);
 
-    const bookFiles = await this.opdsBookService.getBookFiles(bookId, fileId);
+    const bookFiles = await this.opdsBookService.getBookFiles(bookId, fileId, user.userId, this.workflowTargetForOpdsUser(user));
     if (!bookFiles) throw new NotFoundException('File not found');
 
     const { absolutePath, format } = bookFiles;
@@ -305,5 +315,15 @@ export class OpdsController {
       throw new BadRequestException(`${name} must be a positive integer`);
     }
     return parsed;
+  }
+
+  private workflowTargetForOpdsUser(user: OpdsRequestUser) {
+    const target = user.opdsUserId > 0 ? ({ type: 'opds', opdsUserId: user.opdsUserId } as const) : undefined;
+    this.logger.log(
+      `[opds.workflow_delivery] userId=${user.userId} opdsUserId=${user.opdsUserId} targetType=${target ? 'opds' : 'none'} targetId=${target ? user.opdsUserId : ''} - ${
+        target ? 'workflow target resolved for opds request' : 'workflow-substituted (optimized) files are disabled for this catalog'
+      }`,
+    );
+    return target;
   }
 }

@@ -41,6 +41,7 @@ import {
   User,
   Users,
   Wrench,
+  Workflow,
   Zap,
 } from '@lucide/vue'
 import { APP_FEATURES, Permission } from '@bookorbit/types'
@@ -505,6 +506,14 @@ export const SETTINGS_NAV: readonly SettingsNavGroup[] = [
         icon: Speech,
         keywords: 'tts text to speech provider voice engine openai kokoro',
         isVisible: anyPermission('manage_app_settings'),
+      },
+      {
+        id: 'workflows',
+        routeName: 'settings-admin-workflows',
+        labelKey: 'settings.admin.tabs.workflows',
+        icon: Workflow,
+        keywords: 'workflow pipeline transform convert book file command',
+        isVisible: anyPermission(Permission.ManageWorkflows),
       },
       {
         id: 'book-dock',
