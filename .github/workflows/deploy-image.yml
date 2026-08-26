@@ -1,0 +1,78 @@
+name: Deploy Image
+run-name: Deploy Image - ${{ github.sha }}
+
+# Fork-only pipeline: builds the app image from the personal deploy branch and
+# publishes it to this fork's GHCR namespace so the production server can
+# `docker pull` instead of building on the (disk-constrained) host. Separate
+# from upstream's container-image.yml (which is main-only, multi-arch, and
+# CI-gated) to avoid fighting merges from upstream.
+
+on:
+  push:
+    branches: [personal-integration]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build and Push
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve short SHA
+        id: meta
+        shell: bash
+        run: echo "sha_short=${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Server is linux/amd64 only, so a single-arch build is sufficient and
+      # much faster than upstream's amd64+arm64 split-then-merge.
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64
+          build-args: APP_VERSION=sha-${{ steps.meta.outputs.sha_short }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:personal-integration
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.meta.outputs.sha_short }}
+          cache-from: type=gha,scope=deploy-image
+          cache-to: type=gha,mode=max,scope=deploy-image
+
+      # Report-only: a personal deploy pipeline shouldn't block on an
+      # unfixable base-image CVE the way upstream's release gate does.
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.meta.outputs.sha_short }}
+          format: table
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
