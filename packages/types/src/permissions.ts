@@ -38,7 +38,10 @@ export enum Permission {
   ViewUserActivity = "view_user_activity",
   ViewAuditLog = "view_audit_log",
 
-  // Notifications
+  // Workflows
+  ManageWorkflows = "manage_workflows",
+  RunWorkflows = "run_workflows",
+
   NotificationAccess = "notification_access",
 }
 
@@ -75,6 +78,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   [Permission.ViewUserActivity]: "View user activity",
   [Permission.ViewAuditLog]: "View audit log",
   [Permission.NotificationAccess]: "Notifications",
+  [Permission.ManageWorkflows]: "Manage workflows",
+  [Permission.RunWorkflows]: "Run workflows",
 };
 
 /**

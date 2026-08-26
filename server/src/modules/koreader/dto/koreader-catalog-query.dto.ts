@@ -123,6 +123,12 @@ export class KoreaderCatalogBooksQueryDto {
   @IsInt()
   @Min(1)
   seriesId?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  @Matches(KOREADER_DEVICE_ID_REGEX)
+  deviceId?: string;
 }
 
 // Bulk download enumeration. Deliberately not a subclass of the list query:

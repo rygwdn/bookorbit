@@ -18,6 +18,7 @@ import {
   oidcRuntimeConfig,
   podcastConfig,
   storageConfig,
+  workflowConfig,
 } from './config/config';
 import { validateEnv } from './config/env.validation';
 import { loggerConfig } from './common/logger.config';
@@ -95,6 +96,7 @@ import { TtsModule } from './modules/tts/tts.module';
 import { SearchModule } from './modules/search/search.module';
 import { WatchDownloadModule } from './modules/watch-download/watch-download.module';
 import { PodcastModule } from './modules/podcast/podcast.module';
+import { WorkflowModule } from './modules/workflow/workflow.module';
 
 @Module({
   imports: [
@@ -115,6 +117,7 @@ import { PodcastModule } from './modules/podcast/podcast.module';
         oidcRuntimeConfig,
         podcastConfig,
         audiolessEpubConfig,
+        workflowConfig,
       ],
     }),
     ScheduleModule.forRoot(),
@@ -197,6 +200,7 @@ import { PodcastModule } from './modules/podcast/podcast.module';
     SearchModule,
     WatchDownloadModule,
     PodcastModule,
+    WorkflowModule,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },

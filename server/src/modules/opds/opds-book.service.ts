@@ -1,4 +1,4 @@
-import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SQL, and, count, eq, gt, inArray, or, sql } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
@@ -21,10 +21,11 @@ import {
   userLibraryAccess,
 } from '../../db/schema';
 import { BookQueryBuilder } from '../book/book-query-builder.service';
-import { isAudioFormat, type ContentFilterRules, type GroupRule } from '@bookorbit/types';
+import { isAudioFormat, type ContentFilterRules, type GroupRule, type WorkflowDeliveryTarget } from '@bookorbit/types';
 import { rankFileRowsByBook, rankFilesByFormatPriority } from '../../common/utils/primary-file-selection.utils';
 import { buildContentFilterClauses } from '../../common/utils/content-filter-sql.utils';
 import { seriesIndexOrderBy } from '../../common/utils/series-index-sql.utils';
+import { WorkflowFileResolverService } from '../workflow/workflow-file-resolver.service';
 
 type Db = NodePgDatabase<typeof schema>;
 
@@ -45,6 +46,7 @@ type SeriesFilter = { seriesId: number } | { normalizedName: string };
 
 type FetchBookEntriesOptions = {
   contextSeries?: SeriesFilter;
+  workflowTarget?: WorkflowDeliveryTarget;
 };
 
 type ContextSeriesRow = {
@@ -105,7 +107,7 @@ export interface OpdsBookEntry {
   isbn13: string | null;
   hasCover: boolean;
   authors: string[];
-  files: { id: number; format: string }[];
+  files: { id: number; format: string; optimized: boolean }[];
 }
 
 export interface OpdsManifestFileRow {
@@ -116,6 +118,7 @@ export interface OpdsManifestFileRow {
   fileHash: string | null;
   filename: string | null;
   contentVersion: Date;
+  optimized: boolean;
 }
 
 export interface OpdsManifestBookRow {
@@ -150,9 +153,12 @@ function isRedundantReadAlong(
 
 @Injectable()
 export class OpdsBookService {
+  private readonly logger = new Logger(OpdsBookService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly queryBuilder: BookQueryBuilder,
+    private readonly workflowFileResolver: WorkflowFileResolverService,
   ) {}
 
   async getAccessibleLibraryIds(userId: number, isSuperuser = false): Promise<number[]> {
@@ -189,7 +195,6 @@ export class OpdsBookService {
       .groupBy(libraries.id)
       .orderBy(libraries.name);
   }
-
   async getBooksPage(
     userId: number,
     sortOrder: OpdsSortOrder,
@@ -198,10 +203,11 @@ export class OpdsBookService {
     filters?: OpdsBookFilters,
     isSuperuser = false,
     contentFilters?: ContentFilterRules,
+    workflowTarget?: WorkflowDeliveryTarget,
   ): Promise<{ entries: OpdsBookEntry[]; total: number }> {
     const scope = await this.buildCatalogScope(userId, filters, isSuperuser, contentFilters);
     if (!scope) return { entries: [], total: 0 };
-    return this.paginatedBookQuery(scope.where, sortOrder, page, size, userId, { contextSeries: scope.contextSeries });
+    return this.paginatedBookQuery(scope.where, sortOrder, page, size, userId, { contextSeries: scope.contextSeries, workflowTarget });
   }
 
   // Resolves authorization and every catalog filter into one where clause. The
@@ -293,6 +299,7 @@ export class OpdsBookService {
     opts: { filters?: OpdsBookFilters; afterId?: number; limit: number },
     isSuperuser = false,
     contentFilters?: ContentFilterRules,
+    workflowTarget?: WorkflowDeliveryTarget,
   ): Promise<{ rows: OpdsManifestBookRow[]; hasNext: boolean }> {
     const scope = await this.buildCatalogScope(userId, opts.filters, isSuperuser, contentFilters);
     if (!scope) return { rows: [], hasNext: false };
@@ -310,10 +317,10 @@ export class OpdsBookService {
 
     const hasNext = idRows.length > opts.limit;
     const ids = idRows.slice(0, opts.limit).map((row) => row.id);
-    return { rows: await this.fetchManifestRows(ids), hasNext };
+    return { rows: await this.fetchManifestRows(ids, userId, workflowTarget), hasNext };
   }
 
-  private async fetchManifestRows(bookIds: number[]): Promise<OpdsManifestBookRow[]> {
+  private async fetchManifestRows(bookIds: number[], userId?: number, workflowTarget?: WorkflowDeliveryTarget): Promise<OpdsManifestBookRow[]> {
     if (bookIds.length === 0) return [];
 
     const [metaRows, authorRows, fileRows] = await Promise.all([
@@ -378,8 +385,28 @@ export class OpdsBookService {
         // Only the basename leaves the server; the stored absolute path never does.
         filename: row.absolutePath.split('/').pop() ?? null,
         contentVersion: row.updatedAt,
+        optimized: false,
       });
       filesByBook.set(row.bookId, list);
+    }
+
+    if (userId !== undefined && workflowTarget) {
+      const substitutes = await this.workflowFileResolver.resolvePreferredOutputFilesForBooks(userId, bookIds, workflowTarget);
+      for (const [substituteBookId, substitute] of substitutes) {
+        const list = filesByBook.get(substituteBookId);
+        if (list && list.length > 0) {
+          list[0] = {
+            id: substitute.id,
+            format: substitute.format,
+            sizeBytes: substitute.sizeBytes,
+            fileHash: substitute.fileHash,
+            filename: substitute.absolutePath.split('/').pop() ?? null,
+            contentVersion: list[0].contentVersion,
+            optimized: true,
+          };
+        }
+      }
+      this.logWorkflowSubstitutionSummary(userId, bookIds, substitutes);
     }
 
     const idOrder = new Map(bookIds.map((id, index) => [id, index]));
@@ -445,13 +472,13 @@ export class OpdsBookService {
 
     return or(...clauses)!;
   }
-
   async getRecentBooksPage(
     userId: number,
     page: number,
     size: number,
     isSuperuser = false,
     contentFilters?: ContentFilterRules,
+    workflowTarget?: WorkflowDeliveryTarget,
   ): Promise<{ entries: OpdsBookEntry[]; total: number }> {
     const accessibleIds = await this.getAccessibleLibraryIds(userId, isSuperuser);
     if (accessibleIds.length === 0) return { entries: [], total: 0 };
@@ -460,10 +487,15 @@ export class OpdsBookService {
       clauses.push(...buildContentFilterClauses(contentFilters, this.db));
     }
     const where = and(...clauses);
-    return this.paginatedBookQuery(where!, 'recent', page, size);
+    return this.paginatedBookQuery(where!, 'recent', page, size, userId, { workflowTarget });
   }
-
-  async getRandomBooks(userId: number, count: number, isSuperuser = false, contentFilters?: ContentFilterRules): Promise<OpdsBookEntry[]> {
+  async getRandomBooks(
+    userId: number,
+    count: number,
+    isSuperuser = false,
+    contentFilters?: ContentFilterRules,
+    workflowTarget?: WorkflowDeliveryTarget,
+  ): Promise<OpdsBookEntry[]> {
     if (count <= 0) return [];
     const accessibleIds = await this.getAccessibleLibraryIds(userId, isSuperuser);
     if (accessibleIds.length === 0) return [];
@@ -481,8 +513,7 @@ export class OpdsBookService {
       .limit(count);
 
     const ids = idRows.map((row) => row.id);
-    if (ids.length === 0) return [];
-    return this.fetchBookEntries(ids);
+    return this.fetchBookEntries(ids, userId, { workflowTarget });
   }
 
   async getDistinctAuthors(userId: number, isSuperuser = false, contentFilters?: ContentFilterRules): Promise<{ name: string; bookCount: number }[]> {
@@ -677,7 +708,27 @@ export class OpdsBookService {
   async getBookFiles(
     bookId: number,
     fileId?: number,
+    userId?: number,
+    workflowTarget?: WorkflowDeliveryTarget,
   ): Promise<{ absolutePath: string; format: string; readAlong: boolean; title: string; authorName: string } | null> {
+    if (!fileId && userId !== undefined) {
+      const substitute = workflowTarget ? await this.workflowFileResolver.resolvePreferredOutputFile(userId, bookId, workflowTarget) : null;
+      if (substitute) {
+        const [titleRow] = await this.db.select({ title: bookMetadata.title }).from(bookMetadata).where(eq(bookMetadata.bookId, bookId)).limit(1);
+        const authorName = await this.fetchPrimaryAuthorName(bookId);
+        this.logger.log(
+          `[opds.workflow_delivery] [end] bookId=${bookId} fileId=${fileId ?? 0} format=${substitute.format} substituted=true - file served`,
+        );
+        return {
+          absolutePath: substitute.absolutePath,
+          format: substitute.format,
+          readAlong: false,
+          title: titleRow?.title ?? `book-${bookId}`,
+          authorName,
+        };
+      }
+    }
+
     const candidates = await this.db
       .select({
         id: bookFiles.id,
@@ -707,6 +758,30 @@ export class OpdsBookService {
         })();
     if (!file) return null;
 
+    const authorName = await this.fetchPrimaryAuthorName(bookId);
+
+    this.logger.log(
+      `[opds.workflow_delivery] [end] bookId=${bookId} fileId=${fileId ?? 0} format=${file.format ?? 'unknown'} substituted=false - file served`,
+    );
+    return {
+      absolutePath: file.absolutePath,
+      format: file.format ?? 'unknown',
+      title: file.title ?? `book-${bookId}`,
+      authorName,
+    };
+  }
+
+  private logWorkflowSubstitutionSummary(userId: number, bookIds: number[], substitutes: ReadonlyMap<number, unknown>): void {
+    const missingBookIds = bookIds
+      .filter((id) => !substitutes.has(id))
+      .slice(0, 20)
+      .join(',');
+    this.logger.log(
+      `[opds.workflow_delivery] userId=${userId} requestedBooks=${bookIds.length} substitutedBooks=${substitutes.size} missingBookIds=${missingBookIds} - workflow substitution applied to catalog page`,
+    );
+  }
+
+  private async fetchPrimaryAuthorName(bookId: number): Promise<string> {
     const [authorRow] = await this.db
       .select({ name: authors.name })
       .from(bookAuthors)
@@ -714,14 +789,7 @@ export class OpdsBookService {
       .where(eq(bookAuthors.bookId, bookId))
       .orderBy(bookAuthors.displayOrder)
       .limit(1);
-
-    return {
-      absolutePath: file.absolutePath,
-      format: file.format ?? 'unknown',
-      readAlong: file.format?.toLowerCase() === 'epub' && file.mediaOverlayAvailable,
-      title: file.title ?? `book-${bookId}`,
-      authorName: authorRow?.name ?? '',
-    };
+    return authorRow?.name ?? '';
   }
 
   private async buildSmartScopeWhere(
@@ -830,12 +898,13 @@ export class OpdsBookService {
 
     const entries = await this.fetchBookEntries(
       idRows.map((r) => r.id),
+      userId,
       options,
     );
     return { entries, total: Number(total) };
   }
 
-  private async fetchBookEntries(bookIds: number[], options: FetchBookEntriesOptions = {}): Promise<OpdsBookEntry[]> {
+  private async fetchBookEntries(bookIds: number[], userId?: number, options: FetchBookEntriesOptions = {}): Promise<OpdsBookEntry[]> {
     if (bookIds.length === 0) return [];
 
     const [metaRows, authorRows, fileRows, contextSeriesRows] = await Promise.all([
@@ -894,12 +963,23 @@ export class OpdsBookService {
       fileRows,
       new Map(metaRows.map((row) => [row.id, { formatPriority: row.formatPriority as string[] | null, primaryFileId: row.primaryFileId }])),
     );
-    const filesByBook = new Map<number, { id: number; format: string }[]>();
+    const filesByBook = new Map<number, { id: number; format: string; optimized: boolean }[]>();
     for (const row of rankedFileRows) {
       if (row.role !== 'content' || isRedundantReadAlong(row, rankedFileRows)) continue;
       const list = filesByBook.get(row.bookId) ?? [];
-      list.push({ id: row.id, format: row.format ?? 'unknown' });
+      list.push({ id: row.id, format: row.format ?? 'unknown', optimized: false });
       filesByBook.set(row.bookId, list);
+    }
+
+    if (userId !== undefined && options.workflowTarget) {
+      const substitutes = await this.workflowFileResolver.resolvePreferredOutputFilesForBooks(userId, bookIds, options.workflowTarget);
+      for (const [substituteBookId, substitute] of substitutes) {
+        const list = filesByBook.get(substituteBookId);
+        if (list && list.length > 0) {
+          list[0] = { id: substitute.id, format: substitute.format, optimized: true };
+        }
+      }
+      this.logWorkflowSubstitutionSummary(userId, bookIds, substitutes);
     }
 
     const idOrder = new Map(bookIds.map((id, i) => [id, i]));

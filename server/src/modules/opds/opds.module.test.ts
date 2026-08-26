@@ -7,6 +7,7 @@ import { AppSettingsModule } from '../app-settings/app-settings.module';
 import { BookModule } from '../book/book.module';
 import { BookCoverStoreModule } from '../book-cover-store/book-cover-store.module';
 import { UserModule } from '../user/user.module';
+import { WorkflowModule } from '../workflow/workflow.module';
 import { OpdsAuthGuard } from './opds-auth.guard';
 import { OpdsBookService } from './opds-book.service';
 import { OpdsController } from './opds.controller';
@@ -23,6 +24,7 @@ describe('OpdsModule', () => {
       BookModule,
       BookCoverStoreModule,
       UserModule,
+      WorkflowModule,
       CommonModule,
     ]);
     expect(Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, OpdsModule)).toEqual([OpdsController, OpdsUserController]);

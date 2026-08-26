@@ -55,6 +55,7 @@ import { KoreaderCatalogBooksQueryDto, KoreaderCatalogManifestQueryDto } from '.
 import { AppSettingsService } from '../app-settings/app-settings.service';
 import { KoreaderPluginService } from './koreader-plugin.service';
 import { KoreaderService } from './koreader.service';
+import { WorkflowFileResolverService } from '../workflow/workflow-file-resolver.service';
 
 type OpdsSortOrder = Parameters<OpdsBookService['getBooksPage']>[1];
 type BookProgressRow = Awaited<ReturnType<BookReadService['findProgressByBook']>>[number];
@@ -148,6 +149,7 @@ export class KoreaderCatalogService {
     private readonly appSettingsService: AppSettingsService,
     private readonly koreaderService: KoreaderService,
     private readonly pluginService: KoreaderPluginService,
+    private readonly workflowFileResolver: WorkflowFileResolverService,
   ) {}
 
   getRoot(): { sections: KoreaderCatalogEntry[] } {
@@ -264,7 +266,22 @@ export class KoreaderCatalogService {
 
     const filters = this.buildBookFilters(query);
     const sort = this.mapSort(query.sort ?? 'recently_added', query.order);
-    const { entries, total } = await this.opdsBookService.getBooksPage(user.id, sort, page, size, filters, user.isSuperuser, user.contentFilters);
+    const workflowTarget = query.deviceId ? { type: 'koreader' as const, deviceId: query.deviceId } : undefined;
+    this.logger.log(
+      `[opds.workflow_delivery] userId=${user.id} targetType=${query.deviceId ? 'koreader' : 'none'} targetId=${query.deviceId ?? ''} - ${
+        query.deviceId ? 'workflow target resolved for koreader request' : 'workflow-substituted (optimized) files are disabled for this catalog'
+      }`,
+    );
+    const { entries, total } = await this.opdsBookService.getBooksPage(
+      user.id,
+      sort,
+      page,
+      size,
+      filters,
+      user.isSuperuser,
+      user.contentFilters,
+      workflowTarget,
+    );
 
     const bookIds = entries.map((entry) => entry.id);
     const [progressMap, statusMap, seriesSummary] = await Promise.all([
@@ -318,11 +335,18 @@ export class KoreaderCatalogService {
       afterId = cursor.afterId;
     }
 
+    const manifestWorkflowTarget = query.deviceId ? { type: 'koreader' as const, deviceId: query.deviceId } : undefined;
+    this.logger.log(
+      `[opds.workflow_delivery] userId=${user.id} targetType=${query.deviceId ? 'koreader' : 'none'} targetId=${query.deviceId ?? ''} - ${
+        query.deviceId ? 'workflow target resolved for koreader request' : 'workflow-substituted (optimized) files are disabled for this catalog'
+      }`,
+    );
     const { rows, hasNext } = await this.opdsBookService.getBookManifestPage(
       user.id,
       { filters, afterId, limit: size },
       user.isSuperuser,
       user.contentFilters,
+      manifestWorkflowTarget,
     );
 
     const [userDefaultPattern, deviceOrganization, sanitizeForCrossPlatform] = await Promise.all([
@@ -458,11 +482,12 @@ export class KoreaderCatalogService {
   }
 
   async getBookDetail(user: RequestUser, bookId: number, deviceId?: string): Promise<KoreaderCatalogBookDetail> {
-    const [detail, relatedSections, userDefaultPattern, sanitizeForCrossPlatform] = await Promise.all([
+    const [detail, relatedSections, userDefaultPattern, sanitizeForCrossPlatform, preferredOutputFile] = await Promise.all([
       this.bookService.getDetail(bookId, user),
       this.buildRelatedSections(user, bookId),
       this.koreaderService.getKoreaderUserDefaultPattern(user.id),
       this.appSettingsService.isCrossPlatformPathSanitizationEnabled(),
+      deviceId ? this.workflowFileResolver.resolvePreferredOutputFile(user.id, bookId, { type: 'koreader', deviceId }) : Promise.resolve(null),
     ]);
     const [progress, deviceOrganization] = await Promise.all([
       this.findBestProgress(user.id, detail.id),
@@ -473,7 +498,7 @@ export class KoreaderCatalogService {
       ? deviceOrganization?.seriesFileNamingPattern?.trim() || ''
       : deviceOrganization?.standaloneFileNamingPattern?.trim() || '';
     const selectedPattern = groupedPattern.trim() || effectiveDefaultPattern;
-    return this.mapBookDetail(detail, progress, relatedSections, selectedPattern, sanitizeForCrossPlatform);
+    return this.mapBookDetail(detail, progress, relatedSections, selectedPattern, sanitizeForCrossPlatform, preferredOutputFile);
   }
 
   async streamThumbnail(user: RequestUser, bookId: number, reply: FastifyReply, ifNoneMatch?: string): Promise<void> {
@@ -498,7 +523,7 @@ export class KoreaderCatalogService {
 
   async streamFile(user: RequestUser, fileId: number, reply: FastifyReply): Promise<void> {
     const file = await this.bookService.verifyFileAccess(fileId, user);
-    if (file.role !== 'content') {
+    if (file.role !== 'content' && file.role !== 'workflow_output') {
       throw new NotFoundException('File not found');
     }
 
@@ -724,13 +749,18 @@ export class KoreaderCatalogService {
     relatedSections: KoreaderCatalogRelatedSection[] = [],
     filePattern = DEFAULT_KOREADER_DEVICE_PATTERN,
     sanitizeForCrossPlatform = true,
+    preferredOutputFile: { id: number; absolutePath: string; format: string; sizeBytes: number | null; fileHash: string | null } | null = null,
   ): KoreaderCatalogBookDetail {
     const title = detail.title ?? (basename(detail.folderPath) || `Book ${detail.id}`);
     const files = detail.files
       .filter((file) => file.role === 'primary' || file.role === 'content')
       .map<KoreaderCatalogFile>((file) => {
-        const extension = this.normalizeFormat(file.format);
-        const downloadVariant = extension === 'epub' && file.mediaOverlay?.available === true ? 'audioless_epub' : 'original';
+        const isSubstituted = file.role === 'primary' && preferredOutputFile !== null;
+        const fileId = isSubstituted ? preferredOutputFile.id : file.id;
+        const rawFormat = isSubstituted ? preferredOutputFile.format : file.format;
+        const sizeBytes = isSubstituted ? preferredOutputFile.sizeBytes : file.sizeBytes;
+        const extension = this.normalizeFormat(rawFormat);
+        const downloadVariant = !isSubstituted && extension === 'epub' && file.mediaOverlay?.available === true ? 'audioless_epub' : 'original';
         const hasSameFormatSibling = detail.files.some(
           (candidate) => candidate.id !== file.id && this.normalizeFormat(candidate.format) === extension,
         );
@@ -759,13 +789,13 @@ export class KoreaderCatalogService {
           file.filename ??
           `${title}.${extension}`;
         return {
-          id: file.id,
+          id: fileId,
           format: extension,
           role: file.role,
           downloadVariant,
-          sizeBytes: downloadVariant === 'audioless_epub' ? null : file.sizeBytes,
+          sizeBytes: downloadVariant === 'audioless_epub' ? null : sizeBytes,
           durationSeconds: file.durationSeconds,
-          downloadUrl: `${CATALOG_BASE}/files/${file.id}/download`,
+          downloadUrl: `${CATALOG_BASE}/files/${fileId}/download`,
           devicePath: this.variantDevicePath(devicePath, downloadVariant, hasSameFormatSibling),
         };
       });
