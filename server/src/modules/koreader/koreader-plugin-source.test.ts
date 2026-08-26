@@ -125,6 +125,10 @@ describe('KOReader plugin update source wiring', () => {
     expect(progress).toContain('local local_timestamp = self.last_page_turn_timestamp or 0');
     expect(progress).toContain('cancel_callback = function()');
     expect(progress).toContain('on_done(remote_newer)');
+    // A 404 pull means the server holds no position for the document; it must read exactly
+    // like the empty success body in both pull paths instead of surfacing as an error.
+    expect(progress.match(/if not body and err == 404 then/g)).toHaveLength(2);
+    expect(progress).toContain('body = {}');
     expect(main).toContain('self:reconcileProgressBeforeBookSync(snap.digest, run_book_sync)');
     expect(main).toContain('local latest_snap = BookOrbitBookSync.capture(self)');
     expect(main).toContain('skip_progress = skip_progress');
