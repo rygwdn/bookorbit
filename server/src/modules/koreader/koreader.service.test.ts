@@ -60,6 +60,7 @@ describe('KoreaderService', () => {
     deleteKoreaderUser: ReturnType<typeof vi.fn>;
     getAccessibleLibraryIds: ReturnType<typeof vi.fn>;
     resolveBookFileByHash: ReturnType<typeof vi.fn>;
+    upsertUnmatchedBooks: ReturnType<typeof vi.fn>;
     upsertDeviceProgress: ReturnType<typeof vi.fn>;
     upsertDeviceProgressMany: ReturnType<typeof vi.fn>;
     upsertReadingProgress: ReturnType<typeof vi.fn>;
@@ -144,6 +145,7 @@ describe('KoreaderService', () => {
       deleteKoreaderUser: vi.fn(),
       getAccessibleLibraryIds: vi.fn(),
       resolveBookFileByHash: vi.fn(),
+      upsertUnmatchedBooks: vi.fn(),
       upsertDeviceProgress: vi.fn(),
       upsertDeviceProgressMany: vi.fn(),
       upsertReadingProgress: vi.fn(),
@@ -224,6 +226,7 @@ describe('KoreaderService', () => {
     mockRepo.deleteKoreaderUser.mockResolvedValue(undefined);
     mockRepo.updateKoreaderUser.mockResolvedValue(undefined);
     mockRepo.upsertDeviceProgress.mockResolvedValue(undefined);
+    mockRepo.upsertUnmatchedBooks.mockResolvedValue(undefined);
     mockRepo.upsertDeviceProgressMany.mockResolvedValue(undefined);
     mockRepo.upsertReadingProgress.mockResolvedValue(undefined);
     mockRepo.getAccessibleLibraryIds.mockResolvedValue([1, 2]);
@@ -461,10 +464,70 @@ describe('KoreaderService', () => {
         }),
       ).rejects.toThrow(NotFoundException);
 
+      expect(mockRepo.upsertUnmatchedBooks).not.toHaveBeenCalled();
       expect(mockRepo.upsertDeviceProgress).not.toHaveBeenCalled();
       expect(mockRepo.upsertReadingProgress).not.toHaveBeenCalled();
       expect(mockBookService.autoUpdateReadStatusForProgress).not.toHaveBeenCalled();
       expect(mockAchievementEvents.emit).not.toHaveBeenCalled();
+    });
+
+    it('records an unmatched book (with client metadata) for manual linking when a valid document hash cannot be resolved', async () => {
+      mockRepo.resolveBookFileByHash.mockResolvedValue(null);
+
+      await expect(
+        service.saveProgress(syncUser(12), {
+          document: 'ABCDEF1234567890FEDCBA0123456789',
+          percentage: 0.2,
+          metadata: { filename: 'book.epub', title: 'A Book', authors: 'An Author' },
+          device: 'Kobo Sage',
+          device_id: 'device-12',
+          timestamp: 1700000000,
+        }),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(mockRepo.upsertUnmatchedBooks).toHaveBeenCalledWith(
+        12,
+        [
+          {
+            hash: 'abcdef1234567890fedcba0123456789',
+            title: 'A Book',
+            authors: 'An Author',
+            lastOpen: 1700000000,
+            source: 'file',
+            metadataAmbiguous: false,
+          },
+        ],
+        'device-12',
+      );
+      expect(mockRepo.upsertDeviceProgress).not.toHaveBeenCalled();
+    });
+
+    it('records an unmatched book with null metadata when the client sends none', async () => {
+      mockRepo.resolveBookFileByHash.mockResolvedValue(null);
+
+      await expect(
+        service.saveProgress(syncUser(12), {
+          document: '0123456789abcdef0123456789abcdef',
+          percentage: 0.2,
+          device: 'Kobo Sage',
+          device_id: 'device-12',
+        }),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(mockRepo.upsertUnmatchedBooks).toHaveBeenCalledWith(
+        12,
+        [
+          {
+            hash: '0123456789abcdef0123456789abcdef',
+            title: null,
+            authors: null,
+            lastOpen: null,
+            source: 'file',
+            metadataAmbiguous: false,
+          },
+        ],
+        'device-12',
+      );
     });
 
     it('passes empty accessible library lists to hash resolution', async () => {
@@ -479,6 +542,7 @@ describe('KoreaderService', () => {
       ).rejects.toThrow(NotFoundException);
 
       expect(mockRepo.resolveBookFileByHash).toHaveBeenCalledWith('no-access-document', [], 12);
+      expect(mockRepo.upsertUnmatchedBooks).not.toHaveBeenCalled();
     });
 
     it('uses the default device and generated device id when the payload leaves them empty', async () => {

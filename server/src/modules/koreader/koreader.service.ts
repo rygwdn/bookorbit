@@ -61,6 +61,7 @@ const MAX_SYNC_SESSION_SECONDS = 30 * 60;
  * does turn out to overlap a later sweep's measured session is retired by that sweep.
  */
 const PLUGIN_SWEEP_SILENCE_MS = 30 * 24 * 60 * 60 * 1000;
+const MD5_HASH = /^[0-9a-f]{32}$/;
 
 /** `format` routes the incoming position to the cfi or the pageNumber column. */
 export interface KoreaderProgressBookFile {
@@ -182,7 +183,15 @@ export class KoreaderService {
 
   async saveProgress(
     user: RequestUser,
-    data: { document: string; percentage: number; progress?: string; device?: string; device_id?: string; timestamp?: number },
+    data: {
+      document: string;
+      percentage: number;
+      progress?: string;
+      device?: string;
+      device_id?: string;
+      timestamp?: number;
+      metadata?: Record<string, unknown>;
+    },
   ) {
     const userId = user.id;
     const startedAt = Date.now();
@@ -195,6 +204,38 @@ export class KoreaderService {
     const bookFile = await this.repo.resolveBookFileByHash(data.document, accessibleLibraryIds, userId);
 
     if (!bookFile) {
+      // The kosync progress protocol (used by KOReader and by newer kosync clients such as other
+      // reader apps) sends a document hash plus an optional metadata object ({ filename, title,
+      // authors }). The hash has nothing to match against the library, so record it in the
+      // unmatched-books queue (source 'file') together with whatever metadata the client sent, so
+      // the user can identify and manually link it to a book file; once linked, subsequent
+      // progress syncs resolve via the manual hash link. Devices running the BookOrbit plugin
+      // surface this through the match path instead — this covers devices that only speak kosync.
+      const documentHash = data.document.toLowerCase();
+      if (MD5_HASH.test(documentHash)) {
+        const metadata = data.metadata;
+        const rawTitle = metadata?.title;
+        const rawAuthors = metadata?.authors;
+        const title = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle : null;
+        const authors = typeof rawAuthors === 'string' && rawAuthors.trim() ? rawAuthors : null;
+        await this.repo.upsertUnmatchedBooks(
+          userId,
+          [
+            {
+              hash: documentHash,
+              title,
+              authors,
+              lastOpen: data.timestamp ?? null,
+              source: 'file',
+              metadataAmbiguous: false,
+            },
+          ],
+          deviceId,
+        );
+        this.logger.log(
+          `[${SYNC_EVENT}] [unmatched] userId=${userId} document=${data.document.slice(0, 16)} device=${device} - unmatched book recorded for manual linking`,
+        );
+      }
       this.logger.debug(
         `[${SYNC_EVENT}] [fail] userId=${userId} document=${data.document.slice(0, 16)} durationMs=${Date.now() - startedAt} error="book not found" - save progress failed`,
       );
