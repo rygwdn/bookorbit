@@ -10,7 +10,7 @@ type TestableOpdsBookService = {
   buildReadStatusClause(userId: number, status: 'unread' | 'reading' | 'finished'): unknown;
   fetchBookEntries(bookIds: number[], userId?: number, options?: unknown): Promise<unknown[]>;
   buildSmartScopeWhere(userId: number, smartScopeId: number, accessibleIds: number[], contentFilters?: unknown, q?: string): Promise<unknown>;
-  fetchManifestRows(bookIds: number[], userId?: number): Promise<unknown[]>;
+  fetchManifestRows(bookIds: number[], userId?: number, workflowTarget?: unknown): Promise<unknown[]>;
   paginatedBookQuery(where: unknown, sortOrder: string, page: number, size: number, userId?: number, options?: unknown): Promise<BookPageResult>;
   fetchPrimaryAuthorName(bookId: number): Promise<string>;
 };
@@ -552,8 +552,8 @@ describe('OpdsBookService', () => {
         hasCover: true,
         authors: ['Author One'],
         files: [
-          { id: 10, format: 'epub' },
-          { id: 11, format: 'mobi' },
+          { id: 10, format: 'epub', optimized: false },
+          { id: 11, format: 'mobi', optimized: false },
         ],
       }),
       expect.objectContaining({
@@ -561,7 +561,7 @@ describe('OpdsBookService', () => {
         title: 'second',
         hasCover: false,
         authors: ['Author Two'],
-        files: [{ id: 20, format: 'unknown' }],
+        files: [{ id: 20, format: 'unknown', optimized: false }],
       }),
     ]);
 
@@ -601,5 +601,97 @@ describe('OpdsBookService', () => {
         seriesIndex: '3',
       }),
     ]);
+  });
+
+  it('marks the workflow-substituted file as optimized and leaves the rest unmarked', async () => {
+    const now = new Date('2026-04-15T00:00:00.000Z');
+    const { service } = makeService(
+      [
+        [
+          {
+            id: 1,
+            folderPath: '/library/first',
+            addedAt: now,
+            bookUpdatedAt: now,
+            title: 'First',
+            description: null,
+            seriesId: null,
+            seriesName: null,
+            seriesIndex: null,
+            language: null,
+            publisher: null,
+            isbn13: null,
+            coverSource: null,
+          },
+        ],
+        [{ bookId: 1, name: 'Author One' }],
+        [
+          { bookId: 1, id: 10, format: 'epub', role: 'content' },
+          { bookId: 1, id: 11, format: 'mobi', role: 'content' },
+        ],
+      ],
+      undefined,
+      {
+        resolvePreferredOutputFilesForBooks: vi
+          .fn()
+          .mockResolvedValue(new Map([[1, { id: 99, absolutePath: '/data/workflow-output/1/2/output.epub', format: 'epub' }]])),
+      },
+    );
+
+    await expect(testable(service).fetchBookEntries([1], 3, { workflowTarget: { type: 'opds', opdsUserId: 3 } })).resolves.toEqual([
+      expect.objectContaining({
+        id: 1,
+        files: [
+          { id: 99, format: 'epub', optimized: true },
+          { id: 11, format: 'mobi', optimized: false },
+        ],
+      }),
+    ]);
+  });
+
+  it('marks the workflow-substituted manifest row as optimized and leaves the rest unmarked', async () => {
+    const now = new Date('2026-04-15T00:00:00.000Z');
+    const { service } = makeService(
+      [
+        [
+          {
+            id: 1,
+            folderPath: '/library/first',
+            libraryName: 'Main',
+            title: 'First',
+            subtitle: null,
+            seriesName: null,
+            seriesIndex: null,
+            language: null,
+            publisher: null,
+            publishedYear: null,
+            isbn10: null,
+            isbn13: null,
+          },
+        ],
+        [{ bookId: 1, name: 'Author One' }],
+        [
+          { bookId: 1, id: 10, format: 'epub', sizeBytes: 1000, fileHash: 'orig', absolutePath: '/books/first.epub', updatedAt: now },
+          { bookId: 1, id: 11, format: 'mobi', sizeBytes: 900, fileHash: 'mobi', absolutePath: '/books/first.mobi', updatedAt: now },
+        ],
+      ],
+      undefined,
+      {
+        resolvePreferredOutputFilesForBooks: vi
+          .fn()
+          .mockResolvedValue(
+            new Map([[1, { id: 99, absolutePath: '/data/workflow-output/1/2/output.epub', format: 'epub', sizeBytes: 500, fileHash: 'opt' }]]),
+          ),
+      },
+    );
+
+    const [row] = await testable(service).fetchManifestRows([1], 3, { type: 'opds', opdsUserId: 3 } as never);
+    expect(row).toMatchObject({
+      id: 1,
+      files: [
+        { id: 99, format: 'epub', filename: 'output.epub', optimized: true },
+        { id: 11, format: 'mobi', optimized: false },
+      ],
+    });
   });
 });

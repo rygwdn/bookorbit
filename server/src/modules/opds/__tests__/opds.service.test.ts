@@ -25,7 +25,7 @@ function sampleBook(overrides?: Partial<OpdsBookEntry>): OpdsBookEntry {
     isbn13: '9780765311788',
     hasCover: true,
     authors: ['Brandon Sanderson'],
-    files: [{ id: 10, format: 'epub' }],
+    files: [{ id: 10, format: 'epub', optimized: false }],
     ...overrides,
   };
 }
@@ -359,8 +359,8 @@ describe('OpdsService', () => {
       const service = makeService();
       const book = sampleBook({
         files: [
-          { id: 10, format: 'epub' },
-          { id: 11, format: 'pdf' },
+          { id: 10, format: 'epub', optimized: false },
+          { id: 11, format: 'pdf', optimized: false },
         ],
       });
       const xml = service.generateAcquisitionFeed(
@@ -378,6 +378,41 @@ describe('OpdsService', () => {
       expect(xml).toContain('application/pdf');
       expect(xml).toContain('fileId=10');
       expect(xml).toContain('fileId=11');
+    });
+
+    it('marks an optimized (workflow-produced) file with an Optimized suffix in its acquisition link title', () => {
+      const service = makeService();
+      const book = sampleBook({ files: [{ id: 10, format: 'epub', optimized: true }] });
+      const xml = service.generateAcquisitionFeed(
+        'Catalog',
+        'urn:bookorbit:catalog',
+        [book],
+        1,
+        1,
+        50,
+        `${BASE}/catalog?page=1&size=50`,
+        'test-token',
+      );
+
+      expect(xml).toContain('title="EPUB (Optimized)"');
+    });
+
+    it('does not mark a non-optimized file as Optimized', () => {
+      const service = makeService();
+      const book = sampleBook({ files: [{ id: 10, format: 'epub', optimized: false }] });
+      const xml = service.generateAcquisitionFeed(
+        'Catalog',
+        'urn:bookorbit:catalog',
+        [book],
+        1,
+        1,
+        50,
+        `${BASE}/catalog?page=1&size=50`,
+        'test-token',
+      );
+
+      expect(xml).toContain('title="EPUB"');
+      expect(xml).not.toContain('Optimized');
     });
   });
 
@@ -424,7 +459,7 @@ describe('OpdsService', () => {
         description: 'How AI was built',
         seriesName: null,
         seriesIndex: null,
-        files: [{ id: 9001, format: 'epub' }],
+        files: [{ id: 9001, format: 'epub', optimized: false }],
       });
       const children = sampleBook({
         id: 500,
@@ -432,7 +467,7 @@ describe('OpdsService', () => {
         description: 'Book three of the Dune\u0000 Chronicles',
         seriesName: null,
         seriesIndex: null,
-        files: [{ id: 9000, format: 'epub' }],
+        files: [{ id: 9000, format: 'epub', optimized: false }],
       });
 
       const xml = service.generateAcquisitionFeed(

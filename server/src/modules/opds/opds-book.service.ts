@@ -106,7 +106,7 @@ export interface OpdsBookEntry {
   isbn13: string | null;
   hasCover: boolean;
   authors: string[];
-  files: { id: number; format: string }[];
+  files: { id: number; format: string; optimized: boolean }[];
 }
 
 export interface OpdsManifestFileRow {
@@ -116,6 +116,7 @@ export interface OpdsManifestFileRow {
   fileHash: string | null;
   filename: string | null;
   contentVersion: Date;
+  optimized: boolean;
 }
 
 export interface OpdsManifestBookRow {
@@ -364,6 +365,7 @@ export class OpdsBookService {
         // Only the basename leaves the server; the stored absolute path never does.
         filename: row.absolutePath.split('/').pop() ?? null,
         contentVersion: row.updatedAt,
+        optimized: false,
       });
       filesByBook.set(row.bookId, list);
     }
@@ -380,6 +382,7 @@ export class OpdsBookService {
             fileHash: substitute.fileHash,
             filename: substitute.absolutePath.split('/').pop() ?? null,
             contentVersion: list[0].contentVersion,
+            optimized: true,
           };
         }
       }
@@ -885,11 +888,11 @@ export class OpdsBookService {
       authorsByBook.set(row.bookId, list);
     }
 
-    const filesByBook = new Map<number, { id: number; format: string }[]>();
+    const filesByBook = new Map<number, { id: number; format: string; optimized: boolean }[]>();
     for (const row of fileRows) {
       if (row.role !== 'content') continue;
       const list = filesByBook.get(row.bookId) ?? [];
-      list.push({ id: row.id, format: row.format ?? 'unknown' });
+      list.push({ id: row.id, format: row.format ?? 'unknown', optimized: false });
       filesByBook.set(row.bookId, list);
     }
 
@@ -900,7 +903,7 @@ export class OpdsBookService {
       for (const [substituteBookId, substitute] of substitutes) {
         const list = filesByBook.get(substituteBookId);
         if (list && list.length > 0) {
-          list[0] = { id: substitute.id, format: substitute.format };
+          list[0] = { id: substitute.id, format: substitute.format, optimized: true };
         }
       }
     }
