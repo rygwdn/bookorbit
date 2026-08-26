@@ -160,7 +160,10 @@ export class OpdsService {
   private bookEntry(book: OpdsBookEntry, coverToken: string): string {
     const lines: string[] = [];
     lines.push('<entry>');
-    lines.push(`  ${xmlEl('title', book.title)}`);
+    // Listing hydration substitutes the workflow's preferred output as files[0] and marks
+    // it optimized; surface that state on the visible title like the acquisition label.
+    const titleSuffix = book.files[0]?.optimized ? ' (Optimized)' : '';
+    lines.push(`  ${xmlEl('title', `${book.title}${titleSuffix}`)}`);
     lines.push(`  ${xmlEl('id', `urn:bookorbit:book:${book.id}`)}`);
     lines.push(`  ${xmlEl('updated', book.updatedAt.toISOString())}`);
 
