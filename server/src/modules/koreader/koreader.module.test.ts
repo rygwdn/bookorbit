@@ -1,3 +1,5 @@
+import 'reflect-metadata';
+
 import { describe, expect, it } from 'vitest';
 
 import { KoreaderAnnotationExchangeService } from './koreader-annotation-exchange.service';

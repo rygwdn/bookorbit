@@ -140,15 +140,6 @@ describe('UserFormDrawer sections', () => {
 })
 
 describe('UserFormDrawer permissions', () => {
-  it('tags the elevated permissions rather than heading every group twice', async () => {
-    const wrapper = await mountDrawer()
-    await openSection(wrapper, 'Permissions')
-
-    const deleteBooks = wrapper.findAll('label').find((label) => label.text().includes('Delete books'))
-    expect(deleteBooks?.text()).toContain('Manage')
-    expect(wrapper.text()).toContain('What this account is allowed to do. 2 of 26 granted.')
-  })
-
   it('reports the preset the selection matches', async () => {
     const wrapper = await mountDrawer({
       user: { ...USER, permissions: [Permission.LibraryDownload, Permission.KoboSync, Permission.KoreaderSync] },

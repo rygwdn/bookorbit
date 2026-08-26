@@ -9,14 +9,18 @@ const routerState = vi.hoisted(() => ({
   replacedQuery: null as Record<string, string> | null,
 }))
 
-vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: routerState.currentQuery }),
-  useRouter: () => ({
-    replace: vi.fn<(to: { name: string; query: Record<string, string> }) => void>((to) => {
-      routerState.replacedQuery = to.query
+vi.mock('vue-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('vue-router')>()
+  return {
+    ...actual,
+    useRoute: () => ({ query: routerState.currentQuery }),
+    useRouter: () => ({
+      replace: vi.fn<(to: { name: string; query: Record<string, string> }) => void>((to) => {
+        routerState.replacedQuery = to.query
+      }),
     }),
-  }),
-}))
+  }
+})
 
 const koreaderMock = vi.hoisted(() => ({
   credentials: { __v_isRef: true, value: null as KoreaderCredentials | null },

@@ -34,6 +34,7 @@ import AddToCollectionSheet from '@/features/collection/components/AddToCollecti
 import MoveToLibrarySheet from '@/features/book/components/MoveToLibrarySheet.vue'
 import { useMoveToLibraryTarget } from '@/features/book/composables/useMoveToLibraryTarget'
 import BulkEditMetadataDialog from '@/features/book/components/BulkEditMetadataDialog.vue'
+import WorkflowBulkRunDialog from '@/features/workflow/components/WorkflowBulkRunDialog.vue'
 import { useBulkEditMetadata } from '@/features/book/composables/useBulkEditMetadata'
 import type { BulkEditFields } from '@/features/book/composables/useBulkEditMetadata'
 import MetadataExportDialog from '@/features/book/components/MetadataExportDialog.vue'
@@ -419,6 +420,7 @@ const {
   getSelectionPayload,
   addToCollectionOpen,
   bulkEditOpen,
+  workflowRunOpen,
   sendBookOpen,
   quickViewBookId,
   quickViewOpen,
@@ -1071,6 +1073,7 @@ defineOptions({ name: 'HomeView' })
       @edit-individually="handleEditIndividually"
       @refresh-metadata="handleBulkRefreshMetadata"
       @re-extract-cover="handleBulkReExtractCover"
+      @run-workflow="workflowRunOpen = true"
       @set-status="handleBulkSetStatus"
       @set-rating="handleBulkSetRating"
       @set-field="handleBulkSetField"
@@ -1115,6 +1118,14 @@ defineOptions({ name: 'HomeView' })
       :submitting="bulkEditSubmitting"
       @update:open="bulkEditOpen = $event"
       @confirm="handleBulkEditConfirm"
+    />
+
+    <WorkflowBulkRunDialog
+      :open="workflowRunOpen"
+      :selection="getSelectionPayload()"
+      :selection-count="querySelection ? querySelection.total : selectedCount"
+      @update:open="workflowRunOpen = $event"
+      @completed="workflowRunOpen = false"
     />
 
     <SendBookDialog

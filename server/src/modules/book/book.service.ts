@@ -1666,9 +1666,9 @@ export class BookService {
         return row ? [row] : [];
       });
       const files = await this.bookRepo.findAllFilesByBookIds(deletedBookIds);
-      const removeTarget = async (path: string, kind: 'bookFile' | 'coverDir'): Promise<boolean> => {
+      const removeTarget = async (path: string, kind: 'bookFile' | 'coverDir' | 'workflowOutputDir'): Promise<boolean> => {
         try {
-          await rm(path, kind === 'coverDir' ? { recursive: true, force: true } : { force: true });
+          await rm(path, kind === 'bookFile' ? { force: true } : { recursive: true, force: true });
           return true;
         } catch (err) {
           const errorClass = err instanceof Error ? err.name : 'Error';
@@ -1697,10 +1697,12 @@ export class BookService {
       });
       // Cover cleanup cannot resurrect a book and must not turn a committed deletion into a
       // failure. Leave covers alone until the database transaction has succeeded.
-      const coverResults = await mapWithConcurrency(deletedBookIds, BOOK_DELETION_CONCURRENCY, (bookId) =>
-        removeTarget(join(this.appDataPath, 'covers', String(bookId)), 'coverDir'),
-      );
-      const failedDeletes = coverResults.filter((removed) => !removed).length;
+      const cleanupResults = await mapWithConcurrency(deletedBookIds, BOOK_DELETION_CONCURRENCY, async (bookId) => {
+        const coverRemoved = await removeTarget(join(this.appDataPath, 'covers', String(bookId)), 'coverDir');
+        const workflowRemoved = await removeTarget(join(this.appDataPath, 'workflow-output', String(bookId)), 'workflowOutputDir');
+        return Number(!coverRemoved) + Number(!workflowRemoved);
+      });
+      const failedDeletes = cleanupResults.reduce((total, failed) => total + failed, 0);
       this.logger.log(
         `[${event}] [end] count=${bookIds.length} durationMs=${Date.now() - startedAt} deletedBooks=${rows.length} deletedFiles=${files.length} failedDeletes=${failedDeletes} - delete books completed`,
       );

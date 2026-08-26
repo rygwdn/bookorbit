@@ -51,6 +51,17 @@ describe('permission-presets', () => {
     expect(presetPermissions('standard')).not.toContain(Permission.ManageBookDock)
   })
 
+  it('offers workflow execution and management only through the admin preset', () => {
+    const workflows = PERMISSION_GROUPS.find((group) => group.id === 'workflows')
+
+    expect(workflows?.use).toEqual([Permission.RunWorkflows])
+    expect(workflows?.manage).toEqual([Permission.ManageWorkflows])
+    expect(presetPermissions('admin')).toContain(Permission.RunWorkflows)
+    expect(presetPermissions('admin')).toContain(Permission.ManageWorkflows)
+    expect(presetPermissions('standard')).not.toContain(Permission.RunWorkflows)
+    expect(presetPermissions('standard')).not.toContain(Permission.ManageWorkflows)
+  })
+
   it('separates personal Book Dock access from global Book Dock administration', () => {
     const bookDock = PERMISSION_GROUPS.find((group) => group.id === 'bookDock')
 

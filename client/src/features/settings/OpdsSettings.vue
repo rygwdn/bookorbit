@@ -14,6 +14,8 @@ import { usePermissions } from '@/features/auth/composables/usePermissions'
 import type { OpdsUser, OpdsSortOrder } from '@bookorbit/types'
 import { useMediaQuery } from '@vueuse/core'
 import { SECRET_INPUT_ATTRS } from '@/lib/secret-input'
+import { useWorkflows } from '@/features/workflow/composables/useWorkflows'
+import WorkflowTargetDeliveryPreference from '@/features/workflow/components/WorkflowTargetDeliveryPreference.vue'
 
 const { t } = useI18n()
 const { supported: deliverySupported } = useReadAloudDelivery()
@@ -36,6 +38,9 @@ const deleteConfirmUser = ref<OpdsUser | null>(null)
 const expandedUserIds = ref<number[]>([])
 const helpOpen = ref(true)
 const isMobile = useMediaQuery('(max-width: 767px)')
+
+const { workflows, refresh: refreshWorkflows } = useWorkflows()
+refreshWorkflows()
 
 const opdsUrl = computed(() => `${window.location.origin}/api/v1/opds`)
 
@@ -357,7 +362,11 @@ function cancelDelete() {
         </p>
       </div>
       <div v-else-if="opdsUsers.length > 0" class="settings-card">
-        <div v-for="user in opdsUsers" :key="user.id" class="px-4 py-3.5 bg-card space-y-3 md:flex md:items-center md:gap-3 md:space-y-0 md:px-5">
+        <div
+          v-for="user in opdsUsers"
+          :key="user.id"
+          class="px-4 py-3.5 bg-card space-y-3 md:flex md:flex-wrap md:items-center md:gap-3 md:space-y-0 md:px-5"
+        >
           <div class="flex-1 min-w-0">
             <p class="settings-label truncate">{{ user.username }}</p>
             <p class="settings-hint" :class="userDetailsOpen(user.id) ? '' : 'line-clamp-1'">
@@ -405,6 +414,12 @@ function cancelDelete() {
               <span class="text-foreground">{{ sortOrderLabel(user.sortOrder) }}</span>
             </div>
           </div>
+          <WorkflowTargetDeliveryPreference
+            v-if="workflows.length > 0"
+            :target="{ type: 'opds', opdsUserId: user.id }"
+            :workflows="workflows"
+            class="md:basis-full"
+          />
         </div>
       </div>
     </div>

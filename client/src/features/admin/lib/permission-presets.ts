@@ -19,6 +19,11 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     manage: [Permission.LibraryDeleteBooks],
   },
   {
+    id: 'workflows',
+    use: [Permission.RunWorkflows],
+    manage: [Permission.ManageWorkflows],
+  },
+  {
     id: 'bookRequests',
     use: [Permission.BookRequestAccess, Permission.BookRequestAutoApprove, Permission.BookRequestSelfFulfill],
     manage: [Permission.ManageBookRequests],

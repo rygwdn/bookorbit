@@ -35,6 +35,7 @@ import AddToCollectionSheet from '@/features/collection/components/AddToCollecti
 import MoveToLibrarySheet from '@/features/book/components/MoveToLibrarySheet.vue'
 import { useMoveToLibraryTarget } from '@/features/book/composables/useMoveToLibraryTarget'
 import BulkEditMetadataDialog from '@/features/book/components/BulkEditMetadataDialog.vue'
+import WorkflowBulkRunDialog from '@/features/workflow/components/WorkflowBulkRunDialog.vue'
 import MetadataExportDialog from '@/features/book/components/MetadataExportDialog.vue'
 import SendBookDialog from '@/features/email/components/SendBookDialog.vue'
 import DeleteBookDialog from '@/features/book/components/DeleteBookDialog.vue'
@@ -246,6 +247,7 @@ const {
   handleDeleteSelected,
   addToCollectionOpen,
   bulkEditOpen,
+  workflowRunOpen,
   sendBookOpen,
   quickViewBookId,
   quickViewOpen,
@@ -486,6 +488,7 @@ defineOptions({ name: 'SmartScopeView' })
       @edit-individually="handleEditIndividually"
       @refresh-metadata="handleBulkRefreshMetadata"
       @re-extract-cover="handleBulkReExtractCover"
+      @run-workflow="workflowRunOpen = true"
       @set-status="handleBulkSetStatus"
       @set-rating="handleBulkSetRating"
       @set-field="handleBulkSetField"
@@ -528,6 +531,13 @@ defineOptions({ name: 'SmartScopeView' })
       :submitting="bulkEditSubmitting"
       @update:open="bulkEditOpen = $event"
       @confirm="handleBulkEditConfirm"
+    />
+    <WorkflowBulkRunDialog
+      :open="workflowRunOpen"
+      :selection="{ bookIds: [...selectedIds] }"
+      :selection-count="selectedCount"
+      @update:open="workflowRunOpen = $event"
+      @completed="workflowRunOpen = false"
     />
     <SendBookDialog
       :open="sendBookOpen"
