@@ -21,9 +21,10 @@ import {
   userLibraryAccess,
 } from '../../db/schema';
 import { BookQueryBuilder } from '../book/book-query-builder.service';
-import type { ContentFilterRules, GroupRule } from '@bookorbit/types';
+import type { ContentFilterRules, GroupRule, WorkflowDeliveryTarget } from '@bookorbit/types';
 import { buildContentFilterClauses } from '../../common/utils/content-filter-sql.utils';
 import { seriesIndexOrderBy } from '../../common/utils/series-index-sql.utils';
+import { WorkflowFileResolverService } from '../workflow/workflow-file-resolver.service';
 
 type Db = NodePgDatabase<typeof schema>;
 
@@ -44,6 +45,7 @@ type SeriesFilter = { seriesId: number } | { normalizedName: string };
 
 type FetchBookEntriesOptions = {
   contextSeries?: SeriesFilter;
+  workflowTarget?: WorkflowDeliveryTarget;
 };
 
 type ContextSeriesRow = {
@@ -137,6 +139,7 @@ export class OpdsBookService {
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly queryBuilder: BookQueryBuilder,
+    private readonly workflowFileResolver: WorkflowFileResolverService,
   ) {}
 
   async getAccessibleLibraryIds(userId: number, isSuperuser = false): Promise<number[]> {
@@ -173,7 +176,6 @@ export class OpdsBookService {
       .groupBy(libraries.id)
       .orderBy(libraries.name);
   }
-
   async getBooksPage(
     userId: number,
     sortOrder: OpdsSortOrder,
@@ -182,10 +184,11 @@ export class OpdsBookService {
     filters?: OpdsBookFilters,
     isSuperuser = false,
     contentFilters?: ContentFilterRules,
+    workflowTarget?: WorkflowDeliveryTarget,
   ): Promise<{ entries: OpdsBookEntry[]; total: number }> {
     const scope = await this.buildCatalogScope(userId, filters, isSuperuser, contentFilters);
     if (!scope) return { entries: [], total: 0 };
-    return this.paginatedBookQuery(scope.where, sortOrder, page, size, userId, { contextSeries: scope.contextSeries });
+    return this.paginatedBookQuery(scope.where, sortOrder, page, size, userId, { contextSeries: scope.contextSeries, workflowTarget });
   }
 
   // Resolves authorization and every catalog filter into one where clause. The
@@ -277,6 +280,7 @@ export class OpdsBookService {
     opts: { filters?: OpdsBookFilters; afterId?: number; limit: number },
     isSuperuser = false,
     contentFilters?: ContentFilterRules,
+    workflowTarget?: WorkflowDeliveryTarget,
   ): Promise<{ rows: OpdsManifestBookRow[]; hasNext: boolean }> {
     const scope = await this.buildCatalogScope(userId, opts.filters, isSuperuser, contentFilters);
     if (!scope) return { rows: [], hasNext: false };
@@ -294,10 +298,10 @@ export class OpdsBookService {
 
     const hasNext = idRows.length > opts.limit;
     const ids = idRows.slice(0, opts.limit).map((row) => row.id);
-    return { rows: await this.fetchManifestRows(ids), hasNext };
+    return { rows: await this.fetchManifestRows(ids, userId, workflowTarget), hasNext };
   }
 
-  private async fetchManifestRows(bookIds: number[]): Promise<OpdsManifestBookRow[]> {
+  private async fetchManifestRows(bookIds: number[], userId?: number, workflowTarget?: WorkflowDeliveryTarget): Promise<OpdsManifestBookRow[]> {
     if (bookIds.length === 0) return [];
 
     const [metaRows, authorRows, fileRows] = await Promise.all([
@@ -364,6 +368,23 @@ export class OpdsBookService {
       filesByBook.set(row.bookId, list);
     }
 
+    if (userId !== undefined && workflowTarget) {
+      const substitutes = await this.workflowFileResolver.resolvePreferredOutputFilesForBooks(userId, bookIds, workflowTarget);
+      for (const [substituteBookId, substitute] of substitutes) {
+        const list = filesByBook.get(substituteBookId);
+        if (list && list.length > 0) {
+          list[0] = {
+            id: substitute.id,
+            format: substitute.format,
+            sizeBytes: substitute.sizeBytes,
+            fileHash: substitute.fileHash,
+            filename: substitute.absolutePath.split('/').pop() ?? null,
+            contentVersion: list[0].contentVersion,
+          };
+        }
+      }
+    }
+
     const idOrder = new Map(bookIds.map((id, index) => [id, index]));
     return metaRows
       .map((row) => ({
@@ -427,13 +448,13 @@ export class OpdsBookService {
 
     return or(...clauses)!;
   }
-
   async getRecentBooksPage(
     userId: number,
     page: number,
     size: number,
     isSuperuser = false,
     contentFilters?: ContentFilterRules,
+    workflowTarget?: WorkflowDeliveryTarget,
   ): Promise<{ entries: OpdsBookEntry[]; total: number }> {
     const accessibleIds = await this.getAccessibleLibraryIds(userId, isSuperuser);
     if (accessibleIds.length === 0) return { entries: [], total: 0 };
@@ -442,10 +463,15 @@ export class OpdsBookService {
       clauses.push(...buildContentFilterClauses(contentFilters, this.db));
     }
     const where = and(...clauses);
-    return this.paginatedBookQuery(where!, 'recent', page, size);
+    return this.paginatedBookQuery(where!, 'recent', page, size, userId, { workflowTarget });
   }
-
-  async getRandomBooks(userId: number, count: number, isSuperuser = false, contentFilters?: ContentFilterRules): Promise<OpdsBookEntry[]> {
+  async getRandomBooks(
+    userId: number,
+    count: number,
+    isSuperuser = false,
+    contentFilters?: ContentFilterRules,
+    workflowTarget?: WorkflowDeliveryTarget,
+  ): Promise<OpdsBookEntry[]> {
     if (count <= 0) return [];
     const accessibleIds = await this.getAccessibleLibraryIds(userId, isSuperuser);
     if (accessibleIds.length === 0) return [];
@@ -463,8 +489,7 @@ export class OpdsBookService {
       .limit(count);
 
     const ids = idRows.map((row) => row.id);
-    if (ids.length === 0) return [];
-    return this.fetchBookEntries(ids);
+    return this.fetchBookEntries(ids, userId, { workflowTarget });
   }
 
   async getDistinctAuthors(userId: number, isSuperuser = false, contentFilters?: ContentFilterRules): Promise<{ name: string; bookCount: number }[]> {
@@ -649,7 +674,26 @@ export class OpdsBookService {
     }
   }
 
-  async getBookFiles(bookId: number, fileId?: number): Promise<{ absolutePath: string; format: string; title: string; authorName: string } | null> {
+  async getBookFiles(
+    bookId: number,
+    fileId: number | undefined,
+    userId: number,
+    workflowTarget?: WorkflowDeliveryTarget,
+  ): Promise<{ absolutePath: string; format: string; title: string; authorName: string } | null> {
+    if (!fileId) {
+      const substitute = workflowTarget ? await this.workflowFileResolver.resolvePreferredOutputFile(userId, bookId, workflowTarget) : null;
+      if (substitute) {
+        const [titleRow] = await this.db.select({ title: bookMetadata.title }).from(bookMetadata).where(eq(bookMetadata.bookId, bookId)).limit(1);
+        const authorName = await this.fetchPrimaryAuthorName(bookId);
+        return {
+          absolutePath: substitute.absolutePath,
+          format: substitute.format,
+          title: titleRow?.title ?? `book-${bookId}`,
+          authorName,
+        };
+      }
+    }
+
     const fileQuery = this.db
       .select({
         absolutePath: bookFiles.absolutePath,
@@ -665,6 +709,17 @@ export class OpdsBookService {
     const [file] = await fileQuery;
     if (!file) return null;
 
+    const authorName = await this.fetchPrimaryAuthorName(bookId);
+
+    return {
+      absolutePath: file.absolutePath,
+      format: file.format ?? 'unknown',
+      title: file.title ?? `book-${bookId}`,
+      authorName,
+    };
+  }
+
+  private async fetchPrimaryAuthorName(bookId: number): Promise<string> {
     const [authorRow] = await this.db
       .select({ name: authors.name })
       .from(bookAuthors)
@@ -672,13 +727,7 @@ export class OpdsBookService {
       .where(eq(bookAuthors.bookId, bookId))
       .orderBy(bookAuthors.displayOrder)
       .limit(1);
-
-    return {
-      absolutePath: file.absolutePath,
-      format: file.format ?? 'unknown',
-      title: file.title ?? `book-${bookId}`,
-      authorName: authorRow?.name ?? '',
-    };
+    return authorRow?.name ?? '';
   }
 
   private async buildSmartScopeWhere(
@@ -785,12 +834,13 @@ export class OpdsBookService {
 
     const entries = await this.fetchBookEntries(
       idRows.map((r) => r.id),
+      userId,
       options,
     );
     return { entries, total: Number(total) };
   }
 
-  private async fetchBookEntries(bookIds: number[], options: FetchBookEntriesOptions = {}): Promise<OpdsBookEntry[]> {
+  private async fetchBookEntries(bookIds: number[], userId?: number, options: FetchBookEntriesOptions = {}): Promise<OpdsBookEntry[]> {
     if (bookIds.length === 0) return [];
 
     const [metaRows, authorRows, fileRows, contextSeriesRows] = await Promise.all([
@@ -841,6 +891,18 @@ export class OpdsBookService {
       const list = filesByBook.get(row.bookId) ?? [];
       list.push({ id: row.id, format: row.format ?? 'unknown' });
       filesByBook.set(row.bookId, list);
+    }
+
+    if (userId !== undefined) {
+      const substitutes = options.workflowTarget
+        ? await this.workflowFileResolver.resolvePreferredOutputFilesForBooks(userId, bookIds, options.workflowTarget)
+        : new Map();
+      for (const [substituteBookId, substitute] of substitutes) {
+        const list = filesByBook.get(substituteBookId);
+        if (list && list.length > 0) {
+          list[0] = { id: substitute.id, format: substitute.format };
+        }
+      }
     }
 
     const idOrder = new Map(bookIds.map((id, i) => [id, i]));

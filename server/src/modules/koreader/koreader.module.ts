@@ -15,6 +15,7 @@ import { RecommendationModule } from '../recommendation/recommendation.module';
 import { UserModule } from '../user/user.module';
 import { UserBookNoteModule } from '../user-book-note/user-book-note.module';
 import { UserBookStatusModule } from '../user-book-status/user-book-status.module';
+import { WorkflowModule } from '../workflow/workflow.module';
 import { KoreaderAnnotationExchangeService } from './koreader-annotation-exchange.service';
 import { KoreaderAuthGuard } from './koreader-auth.guard';
 import { KoreaderBookmarkExchangeService } from './koreader-bookmark-exchange.service';
@@ -51,6 +52,7 @@ import { KoreaderStatsService } from './koreader-stats.service';
     PositionConverterModule,
     ReadingSessionModule,
     RecommendationModule,
+    WorkflowModule,
   ],
   controllers: [KoreaderController, KoreaderPluginController, KoreaderCatalogController],
   providers: [

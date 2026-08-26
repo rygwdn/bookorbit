@@ -1555,6 +1555,11 @@ export class BookService {
           options: { recursive: true, force: true },
           kind: 'coverDir' as const,
         })),
+        ...rows.map((row) => ({
+          path: join(this.appDataPath, 'workflow-output', String(row.id)),
+          options: { recursive: true, force: true },
+          kind: 'workflowOutputDir' as const,
+        })),
         ...files.map((file) => ({ path: file.absolutePath, options: { force: true }, kind: 'bookFile' as const })),
       ];
       const deleteResults = await Promise.allSettled(deleteTargets.map((target) => rm(target.path, target.options)));

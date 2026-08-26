@@ -232,6 +232,10 @@ export class ScannerRepository {
   // ── Book Files ─────────────────────────────────────────────────────────────
 
   async findBookFilesByLibraryFolder(libraryFolderId: number) {
+    // Workflow-generated outputs are stamped with the source book's libraryFolderId for bookkeeping,
+    // but the physical file lives outside the scanned folder tree (appDataPath/workflow-output/...) and
+    // is lifecycle-managed by the workflow subsystem, not the scanner. Excluding them here is what keeps
+    // pruneMissingBookFiles from treating them as missing and permanently deleting them on every scan.
     return this.db
       .select({
         id: bookFiles.id,
@@ -244,7 +248,7 @@ export class ScannerRepository {
         sortOrder: bookFiles.sortOrder,
       })
       .from(bookFiles)
-      .where(eq(bookFiles.libraryFolderId, libraryFolderId));
+      .where(and(eq(bookFiles.libraryFolderId, libraryFolderId), ne(bookFiles.role, 'workflow_output')));
   }
 
   async findBookFileByHash(fileHash: string, libraryFolderId: number) {
@@ -374,7 +378,14 @@ export class ScannerRepository {
 
   async findBookFilesByBookIds(bookIds: number[]): Promise<(typeof bookFiles.$inferSelect)[]> {
     if (bookIds.length === 0) return [];
-    return this.db.select().from(bookFiles).where(inArray(bookFiles.bookId, bookIds));
+    // Workflow-generated outputs live outside the scanned library folder tree (appDataPath/workflow-output/...)
+    // and are lifecycle-managed by the workflow subsystem, not the scanner. They must never be treated as
+    // scan candidates: including them here would make pruneMissingBookFiles delete them on every scan pass
+    // that reaches the book, since they can never be "retained" by a directory walk.
+    return this.db
+      .select()
+      .from(bookFiles)
+      .where(and(inArray(bookFiles.bookId, bookIds), ne(bookFiles.role, 'workflow_output')));
   }
 
   async deleteBookFile(id: number) {

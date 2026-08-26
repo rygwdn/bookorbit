@@ -1,3 +1,6 @@
+import { drizzle } from 'drizzle-orm/node-postgres';
+
+import * as schema from '../../db/schema';
 import { ScannerRepository } from './scanner.repository';
 
 type QueryKind = 'select' | 'insert' | 'update' | 'delete';
@@ -389,5 +392,44 @@ describe('ScannerRepository', () => {
 
     await expect(repo.findLatestScanJobs([])).resolves.toEqual([]);
     expect(db.selectDistinctOn).not.toHaveBeenCalled();
+  });
+});
+
+// A real drizzle instance over a stub pg client: the queries below are never executed against a
+// server, but they are compiled by the real dialect, so the assertions are on the SQL that
+// production would actually send.
+function makeCapturingRepo(rows: unknown[][] = []) {
+  const queries: { text: string; values: unknown[] }[] = [];
+  const client = {
+    query: (config: { text: string }, values: unknown[] = []) => {
+      queries.push({ text: config.text, values });
+      return Promise.resolve({ rows, fields: [] });
+    },
+  };
+  return { repo: new ScannerRepository(drizzle({ client: client as never, schema }) as never), queries };
+}
+
+describe('ScannerRepository workflow-output exclusion', () => {
+  // Workflow-generated outputs live outside the scanned library folder tree and are lifecycle-managed
+  // by the workflow subsystem, not the scanner. If either query below stops excluding them, the next
+  // library scan will treat every workflow output as "missing" and permanently delete it.
+  it('excludes workflow_output files when listing known files for a library folder', async () => {
+    const { repo, queries } = makeCapturingRepo();
+
+    await repo.findBookFilesByLibraryFolder(4);
+
+    expect(queries[0]?.text).toContain('"book_files"."library_folder_id" = $1');
+    expect(queries[0]?.text).toContain('"book_files"."role" <> $2');
+    expect(queries[0]?.values).toEqual([4, 'workflow_output']);
+  });
+
+  it('excludes workflow_output files when listing known files for a set of books', async () => {
+    const { repo, queries } = makeCapturingRepo();
+
+    await repo.findBookFilesByBookIds([1, 2]);
+
+    expect(queries[0]?.text).toContain('"book_files"."book_id" in ($1, $2)');
+    expect(queries[0]?.text).toContain('"book_files"."role" <> $3');
+    expect(queries[0]?.values).toEqual([1, 2, 'workflow_output']);
   });
 });

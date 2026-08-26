@@ -35,6 +35,7 @@ import {
   User,
   Users,
   Wrench,
+  Workflow,
   Zap,
 } from '@lucide/vue'
 import { Permission } from '@bookorbit/types'
@@ -443,6 +444,14 @@ export const SETTINGS_NAV: readonly SettingsNavGroup[] = [
         icon: Type,
         keywords: 'server font upload typeface available readers',
         isVisible: anyPermission('manage_app_settings'),
+      },
+      {
+        id: 'workflows',
+        routeName: 'settings-admin-workflows',
+        labelKey: 'settings.admin.tabs.workflows',
+        icon: Workflow,
+        keywords: 'workflow pipeline transform convert book file command',
+        isVisible: anyPermission(Permission.ManageWorkflows),
       },
       {
         id: 'book-dock',

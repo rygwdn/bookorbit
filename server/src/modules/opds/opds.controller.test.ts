@@ -135,6 +135,7 @@ describe('OpdsController', () => {
       },
       true,
       undefined,
+      undefined,
     );
     expect(opdsService.generateAcquisitionFeed).toHaveBeenCalledWith(
       'Search: arrakis',
@@ -224,8 +225,8 @@ describe('OpdsController', () => {
     await controller.recent(user, 0, 1000, makeReply());
     await controller.surprise(user, makeReply());
 
-    expect(opdsBookService.getRecentBooksPage).toHaveBeenCalledWith(12, 1, 100, false, undefined);
-    expect(opdsBookService.getRandomBooks).toHaveBeenCalledWith(12, 25, false, undefined);
+    expect(opdsBookService.getRecentBooksPage).toHaveBeenCalledWith(12, 1, 100, false, undefined, undefined);
+    expect(opdsBookService.getRandomBooks).toHaveBeenCalledWith(12, 25, false, undefined, undefined);
     expect(opdsService.generateAcquisitionFeed).toHaveBeenCalledWith(
       'Random Books',
       'urn:bookorbit:surprise',

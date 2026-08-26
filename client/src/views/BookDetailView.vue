@@ -24,6 +24,7 @@ const loadReadingLogTab = () => import('@/features/book/components/detail/tabs/R
 const loadHighlightsTab = () => import('@/features/book/components/detail/tabs/HighlightsTab.vue')
 const ReadingLogTab = defineAsyncComponent(loadReadingLogTab)
 const HighlightsTab = defineAsyncComponent(loadHighlightsTab)
+const WorkflowsTab = defineAsyncComponent(() => import('@/features/book/components/detail/tabs/WorkflowsTab.vue'))
 
 const KEPT_ALIVE_TABS = ['ReadingLogTab', 'HighlightsTab']
 
@@ -52,6 +53,7 @@ const pageTitle = computed(() => {
   if (tab.value === 'files') return t('views.bookDetail.pageTitle.files', { base })
   if (tab.value === 'reading-log') return t('views.bookDetail.pageTitle.readingLog', { base })
   if (tab.value === 'highlights') return t('views.bookDetail.pageTitle.highlights', { base })
+  if (tab.value === 'workflows') return t('views.bookDetail.pageTitle.workflows', { base })
   return t('views.bookDetail.pageTitle.book', { base })
 })
 usePageTitle(pageTitle)
@@ -152,6 +154,7 @@ function onCoverChanged(source: 'extracted' | 'custom' | null) {
           <FilesTab v-else-if="tab === 'files'" :book="detail" @refetch="fetch(detail.id)" />
           <ReadingLogTab v-else-if="tab === 'reading-log'" :book="detail" @saved="onMetadataSaved" />
           <HighlightsTab v-else-if="tab === 'highlights'" :book="detail" />
+          <WorkflowsTab v-else-if="tab === 'workflows'" :book="detail" />
         </KeepAlive>
       </div>
 
@@ -197,6 +200,9 @@ function onCoverChanged(source: 'extracted' | 'custom' | null) {
         </div>
         <div v-else-if="tab === 'highlights'" class="flex h-full min-h-0 flex-col">
           <div class="min-h-80 flex-1 rounded-xl bg-muted animate-shimmer xl:min-h-0" />
+        </div>
+        <div v-else-if="tab === 'workflows'" class="space-y-3">
+          <div v-for="i in 4" :key="i" class="h-16 rounded-md bg-muted animate-shimmer" />
         </div>
       </div>
 

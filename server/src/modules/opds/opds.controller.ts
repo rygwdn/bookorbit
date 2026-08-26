@@ -31,6 +31,10 @@ import { OpdsBookService } from './opds-book.service';
 import { OpdsService } from './opds.service';
 import { BookService } from '../book/book.service';
 
+function workflowTargetForOpdsUser(user: OpdsRequestUser) {
+  return user.opdsUserId > 0 ? ({ type: 'opds', opdsUserId: user.opdsUserId } as const) : undefined;
+}
+
 @Controller('opds')
 @Public()
 @UseGuards(OpdsEnabledGuard, OpdsAuthGuard)
@@ -133,6 +137,7 @@ export class OpdsController {
       filters,
       user.isSuperuser,
       user.contentFilters,
+      workflowTargetForOpdsUser(user),
     );
 
     const selfParams = new URLSearchParams();
@@ -169,6 +174,7 @@ export class OpdsController {
       clampedSize,
       user.isSuperuser,
       user.contentFilters,
+      workflowTargetForOpdsUser(user),
     );
     const selfPath = `/api/v1/opds/recent?page=${clampedPage}&size=${clampedSize}`;
     const xml = this.opdsService.generateAcquisitionFeed(
@@ -186,7 +192,13 @@ export class OpdsController {
 
   @Get('surprise')
   async surprise(@OpdsUser() user: OpdsRequestUser, @Res() reply: FastifyReply) {
-    const entries = await this.opdsBookService.getRandomBooks(user.userId, 25, user.isSuperuser, user.contentFilters);
+    const entries = await this.opdsBookService.getRandomBooks(
+      user.userId,
+      25,
+      user.isSuperuser,
+      user.contentFilters,
+      workflowTargetForOpdsUser(user),
+    );
     const xml = this.opdsService.generateAcquisitionFeed(
       'Random Books',
       'urn:bookorbit:surprise',
@@ -271,7 +283,7 @@ export class OpdsController {
   ) {
     await this.opdsBookService.validateBookAccess(bookId, user.userId, user.isSuperuser, user.contentFilters);
 
-    const bookFiles = await this.opdsBookService.getBookFiles(bookId, fileId);
+    const bookFiles = await this.opdsBookService.getBookFiles(bookId, fileId, user.userId, workflowTargetForOpdsUser(user));
     if (!bookFiles) throw new NotFoundException('File not found');
 
     const { absolutePath, format } = bookFiles;

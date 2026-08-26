@@ -90,6 +90,7 @@ const ADMIN_ROUTES: Record<AdminTab, string> = {
   'magic-links': 'settings-admin-magic-links',
   oidc: 'settings-admin-oidc',
   'server-fonts': 'settings-admin-server-fonts',
+  workflows: 'settings-admin-workflows',
 }
 
 const SYSTEM_ROUTES: Record<SystemTab, string> = {
@@ -435,6 +436,13 @@ export const routes: RouteRecordRaw[] = [
             component: () => import('@/features/settings/ServerFontsSettings.vue'),
             props: { embedded: true },
             meta: { maxWidth: 'max-w-3xl', title: () => t('titles.admin.server-fonts') },
+          },
+          {
+            path: 'admin/workflows',
+            name: 'settings-admin-workflows',
+            component: () => import('@/features/settings/WorkflowsSettings.vue'),
+            props: { embedded: true },
+            meta: { maxWidth: 'max-w-3xl', title: () => t('titles.admin.workflows') },
           },
           {
             path: 'admin/book-dock',
