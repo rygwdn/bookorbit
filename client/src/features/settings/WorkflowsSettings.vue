@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { Pencil, Plus, Trash2, Workflow } from '@lucide/vue'
 import type { CreateWorkflowRequest, WorkflowDetail } from '@bookorbit/types'
 import { useWorkflows } from '@/features/workflow/composables/useWorkflows'
-import WorkflowDeliveryPreferences from '@/features/workflow/components/WorkflowDeliveryPreferences.vue'
 import WorkflowFormDialog from '@/features/workflow/components/WorkflowFormDialog.vue'
 import SettingsPageHeader from './SettingsPageHeader.vue'
 import { Button } from '@/components/ui/button'
@@ -144,8 +143,6 @@ async function handleDelete() {
         </div>
       </div>
     </div>
-    <WorkflowDeliveryPreferences v-if="workflows.length > 0" :workflows="workflows" />
-
     <WorkflowFormDialog :open="formOpen" :workflow="editingWorkflow" :saving="saving" :error="formError" @submit="handleSubmit" @cancel="closeForm" />
 
     <ConfirmDialog

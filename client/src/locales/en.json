@@ -1379,22 +1379,11 @@
           "delete": "Failed to delete workflow"
         },
         "delivery": {
-          "title": "Delivery preferences",
-          "subtitle": "Choose which workflow output each OPDS account or KOReader device receives.",
-          "add": "Add",
-          "loading": "Loading delivery preferences...",
-          "remove": "Remove delivery preference",
-          "opds": "OPDS account",
-          "koreader": "KOReader device",
-          "selectAccount": "Select account",
-          "selectDevice": "Select device",
-          "selectWorkflow": "Select workflow",
-          "priority": "priority {priority}",
-          "priorityInput": "Priority (lower runs first)",
-          "noTargets": "No OPDS or KOReader access is available for this account.",
-          "loadError": "Failed to load delivery preferences",
           "createError": "Failed to create delivery preference",
-          "deleteError": "Failed to delete delivery preference"
+          "inlineTitle": "Auto-deliver workflow output",
+          "inlineHint": "Automatically deliver a workflow's output through this account or device instead of the original file.",
+          "inlineEmpty": "No workflow auto-delivery configured.",
+          "inlineNone": "None (deliver original file)"
         },
         "deleteDialog": {
           "title": "Delete workflow",
