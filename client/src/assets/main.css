@@ -11,6 +11,20 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* iOS Safari auto-zooms the page when a focused form control's computed
+   font-size is under 16px, then often fails to reset zoom on blur - leaving
+   the page stuck zoomed in with fixed headers/footers pushed off the visual
+   viewport. Force 16px on native form controls below `md` so focusing any
+   input, select, or textarea never triggers it. `!important` is required to
+   win over component-level text-sm/text-xs utility classes. */
+@media (max-width: 767.98px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 .pattern-preview {
   position: relative;
   overflow: hidden;
