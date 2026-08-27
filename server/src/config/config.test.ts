@@ -1,6 +1,16 @@
 import { resolve } from 'path';
 
-import { appConfig, authConfig, dbConfig, emailConfig, fileWriteConfig, migrationConfig, oidcRuntimeConfig, storageConfig } from './config';
+import {
+  appConfig,
+  authConfig,
+  dbConfig,
+  emailConfig,
+  fileWriteConfig,
+  migrationConfig,
+  oidcRuntimeConfig,
+  storageConfig,
+  workflowConfig,
+} from './config';
 
 const ORIGINAL_ENV = process.env;
 
@@ -23,6 +33,7 @@ function resetEnv(): void {
   delete process.env.LIBRARY_BROWSE_ROOT;
   delete process.env.FILE_WRITE_DEBOUNCE_MS;
   delete process.env.FILE_WRITE_MAX_CONCURRENT_WRITES;
+  delete process.env.WORKFLOW_RUN_CONCURRENCY;
   delete process.env.EMAIL_ENCRYPTION_KEY;
   delete process.env.MIGRATION_ENCRYPTION_KEY;
   delete process.env.MIGRATION_IMPORT_ROOT;
@@ -172,6 +183,36 @@ describe('config', () => {
     expect(fileWriteConfig()).toEqual({
       debounceMs: 3000,
       maxConcurrentWrites: 2,
+    });
+  });
+
+  it('defaults workflow run concurrency to 2 when unset', () => {
+    expect(workflowConfig()).toEqual({
+      runConcurrency: 2,
+    });
+  });
+
+  it('reads workflow run concurrency from environment when provided', () => {
+    process.env.WORKFLOW_RUN_CONCURRENCY = '5';
+    expect(workflowConfig()).toEqual({
+      runConcurrency: 5,
+    });
+  });
+
+  it('uses workflow run concurrency fallback for zero, negatives, NaN, and Infinity', () => {
+    process.env.WORKFLOW_RUN_CONCURRENCY = '0';
+    expect(workflowConfig()).toEqual({
+      runConcurrency: 2,
+    });
+
+    process.env.WORKFLOW_RUN_CONCURRENCY = '-1';
+    expect(workflowConfig()).toEqual({
+      runConcurrency: 2,
+    });
+
+    process.env.WORKFLOW_RUN_CONCURRENCY = 'abc';
+    expect(workflowConfig()).toEqual({
+      runConcurrency: 2,
     });
   });
 

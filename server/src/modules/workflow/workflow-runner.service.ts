@@ -12,6 +12,7 @@ import {
   resolveDownloadFilename,
   type BookWorkflowRunStatus,
   type BookWorkflowStatus,
+  type WorkflowRunStatusCounts,
   type WorkflowDetail,
   type WorkflowTemplateKey,
 } from '@bookorbit/types';
@@ -25,7 +26,6 @@ import { WorkflowRunQueue } from './workflow-run-queue';
 import { WorkflowRunRepository } from './workflow-run.repository';
 
 const execFileAsync = promisify(execFile);
-const WORKFLOW_RUN_QUEUE_CONCURRENCY = 2;
 
 function resolveFileExtension(filePath: string, format: string | null): string {
   const ext = extname(filePath).replace(/^\./, '').toLowerCase();
@@ -90,8 +90,9 @@ export class WorkflowRunnerService {
     private readonly config: ConfigService,
   ) {
     this.appDataPath = this.config.get<string>('storage.appDataPath') ?? '/data';
+    const concurrency = this.config.get<number>('workflow.runConcurrency') ?? 2;
     this.runQueue = new WorkflowRunQueue(
-      WORKFLOW_RUN_QUEUE_CONCURRENCY,
+      concurrency,
       (id) => this.processRun(id),
       (id, error) => this.logQueueFailure(id, error),
     );
@@ -156,6 +157,14 @@ export class WorkflowRunnerService {
     }
 
     return { queued, skipped };
+  }
+
+  async getRunStatusCounts(workflowId: number): Promise<WorkflowRunStatusCounts> {
+    const workflow = await this.workflowRepo.findById(workflowId);
+    if (!workflow) {
+      throw new NotFoundException(`Workflow ${workflowId} not found`);
+    }
+    return this.runRepo.countStatusesByWorkflow(workflowId);
   }
 
   async listBookWorkflowStatuses(bookId: number): Promise<BookWorkflowStatus[]> {

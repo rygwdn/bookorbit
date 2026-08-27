@@ -1,9 +1,3 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt } from 'class-validator';
+import { BulkSelectionDto } from '../../../common/dto/bulk-selection.dto';
 
-export class RunWorkflowBulkDto {
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(20000)
-  @IsInt({ each: true })
-  bookIds: number[];
-}
+export class RunWorkflowBulkDto extends BulkSelectionDto {}

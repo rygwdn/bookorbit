@@ -20,6 +20,7 @@ import {
   Star,
   Trash2,
   Unlock,
+  Workflow,
   X,
 } from '@lucide/vue'
 import InputWithSuggestions from '@/components/ui/InputWithSuggestions.vue'
@@ -37,7 +38,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { usePermissions } from '@/features/auth/composables/usePermissions'
 import { STATUS_ICONS, STATUS_OPTIONS } from '@/features/book/composables/useBookStatus'
-import type { ReadStatus } from '@bookorbit/types'
+import { Permission, type ReadStatus } from '@bookorbit/types'
 import {
   BULK_EDITABLE_ARRAY_FIELDS,
   BULK_EDITABLE_FIELD_OPTIONS,
@@ -83,6 +84,7 @@ const emit = defineEmits<{
   're-extract-cover': []
   'set-status': [status: ReadStatus]
   'set-rating': [rating: number | null]
+  'run-workflow': []
   'set-field': [field: BulkEditableField, value: BulkEditableValue]
   'lock-metadata': [locked: boolean]
   'move-to-library': []
@@ -108,6 +110,7 @@ const canBulkActions = computed(() => !isDemoRestrictedAccount.value)
 const canDownload = computed(() => hasPermission('library_download') && canBulkActions.value)
 const canEditMetadata = computed(() => hasPermission('library_edit_metadata') && canBulkActions.value)
 const canMoveToLibrary = computed(() => hasPermission('library_edit_metadata') && canBulkActions.value)
+const canRunWorkflows = computed(() => hasPermission(Permission.RunWorkflows) && canBulkActions.value)
 const canShowMoreMenu = computed(() => canDownload.value || canEditMetadata.value || canMoveToLibrary.value)
 const canShare = computed(() => hasPermission('email_send') || canDownload.value)
 const numericFieldSelected = computed(() => bulkField.value === 'publishedYear')
@@ -180,6 +183,11 @@ function onRefreshMetadata() {
 function onReExtractCover() {
   if (props.count === 0) return
   emit('re-extract-cover')
+}
+
+function onRunWorkflow() {
+  if (props.count === 0) return
+  emit('run-workflow')
 }
 
 function onMoveToLibrary() {
@@ -424,6 +432,10 @@ watch(
                         <DropdownMenuItem data-testid="action-bulk-re-extract-cover" @click="onReExtractCover">
                           <ImageDown :size="14" />
                           <span>{{ t('components.selectionActionBar.reExtractCover') }}</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem v-if="canRunWorkflows" data-testid="action-bulk-run-workflow" @click="onRunWorkflow">
+                          <Workflow :size="14" />
+                          <span>{{ t('components.selectionActionBar.runWorkflow') }}</span>
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuSub>

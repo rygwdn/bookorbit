@@ -24,7 +24,7 @@ import {
   type BookFile,
   type BookWorkflowOutput,
 } from '../../db/schema';
-import type { WorkflowDeliveryTarget } from '@bookorbit/types';
+import { BOOK_WORKFLOW_STATUSES, type BookWorkflowRunStatus, type WorkflowDeliveryTarget } from '@bookorbit/types';
 
 type Db = NodePgDatabase<typeof schema>;
 
@@ -182,6 +182,20 @@ export class WorkflowRunRepository {
       .where(and(eq(bookWorkflowOutputs.bookId, bookId), eq(bookWorkflowOutputs.workflowId, workflowId)))
       .limit(1);
     return row;
+  }
+
+  async countStatusesByWorkflow(workflowId: number): Promise<Record<BookWorkflowRunStatus, number>> {
+    const rows = await this.db
+      .select({ status: bookWorkflowOutputs.status, count: sql<number>`count(*)::int` })
+      .from(bookWorkflowOutputs)
+      .where(eq(bookWorkflowOutputs.workflowId, workflowId))
+      .groupBy(bookWorkflowOutputs.status);
+
+    const counts = Object.fromEntries(BOOK_WORKFLOW_STATUSES.map((status) => [status, 0])) as Record<BookWorkflowRunStatus, number>;
+    for (const row of rows) {
+      counts[row.status as BookWorkflowRunStatus] = Number(row.count);
+    }
+    return counts;
   }
 
   async upsertRun(bookId: number, workflowId: number): Promise<BookWorkflowOutput> {

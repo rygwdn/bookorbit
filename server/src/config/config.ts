@@ -42,6 +42,10 @@ export const fileWriteConfig = registerAs('fileWrite', () => ({
   maxConcurrentWrites: parsePositiveInteger(process.env.FILE_WRITE_MAX_CONCURRENT_WRITES, 2),
 }));
 
+export const workflowConfig = registerAs('workflow', () => ({
+  runConcurrency: parsePositiveInteger(process.env.WORKFLOW_RUN_CONCURRENCY, 2),
+}));
+
 export const emailConfig = registerAs('email', () => ({
   encryptionKey: process.env.EMAIL_ENCRYPTION_KEY ?? '',
 }));

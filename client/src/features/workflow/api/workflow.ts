@@ -1,10 +1,12 @@
 import type {
+  BookSelectionPayload,
   BookWorkflowStatus,
   CreateWorkflowDeliveryPreferenceRequest,
   CreateWorkflowRequest,
   UpdateWorkflowRequest,
   WorkflowDeliveryPreference,
   WorkflowDetail,
+  WorkflowRunStatusCounts,
 } from '@bookorbit/types'
 import { api } from '@/lib/api'
 
@@ -63,14 +65,20 @@ export async function runBookWorkflow(bookId: number, workflowId: number): Promi
 
 export async function runBookWorkflowsBulk(
   workflowId: number,
-  bookIds: number[],
+  selection: BookSelectionPayload,
 ): Promise<{ queued: number[]; skipped: { bookId: number; reason: string }[] }> {
   const res = await api(`/api/v1/books/workflows/${workflowId}/run-bulk`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bookIds }),
+    body: JSON.stringify(selection),
   })
   if (!res.ok) throw new Error(await errorMessage(res, 'Failed to run workflow'))
+  return res.json()
+}
+
+export async function getWorkflowRunStatusCounts(workflowId: number): Promise<WorkflowRunStatusCounts> {
+  const res = await api(`/api/v1/books/workflows/${workflowId}/run-status-counts`)
+  if (!res.ok) throw new Error(await errorMessage(res, 'Failed to load workflow run status counts'))
   return res.json()
 }
 

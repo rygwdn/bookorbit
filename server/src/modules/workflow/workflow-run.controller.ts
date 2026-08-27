@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
 
-import { AuditAction, AuditResource, Permission, type BookWorkflowStatus } from '@bookorbit/types';
+import { AuditAction, AuditResource, Permission, type BookWorkflowStatus, type WorkflowRunStatusCounts } from '@bookorbit/types';
 import { Auditable } from '../../common/decorators/auditable.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
@@ -61,23 +61,12 @@ export class WorkflowBulkRunController {
     @Body() dto: RunWorkflowBulkDto,
     @CurrentUser() user: RequestUser,
   ): Promise<{ queued: number[]; skipped: { bookId: number; reason: string }[] }> {
-    const accessibleBookIds: number[] = [];
-    const skipped: { bookId: number; reason: string }[] = [];
+    const bookIds = await this.bookService.resolveSelectionToIds(dto, user);
+    return this.workflowRunnerService.enqueueRunBulk(bookIds, workflowId);
+  }
 
-    const uniqueIds = [...new Set(dto.bookIds)];
-    for (const bookId of uniqueIds) {
-      try {
-        await this.bookService.verifyBookAccess(bookId, user);
-        accessibleBookIds.push(bookId);
-      } catch {
-        skipped.push({ bookId, reason: 'access denied or book not found' });
-      }
-    }
-
-    const result = await this.workflowRunnerService.enqueueRunBulk(accessibleBookIds, workflowId);
-    return {
-      queued: result.queued,
-      skipped: [...skipped, ...result.skipped],
-    };
+  @Get(':workflowId/run-status-counts')
+  async getRunStatusCounts(@Param('workflowId', ParseIntPipe) workflowId: number): Promise<WorkflowRunStatusCounts> {
+    return this.workflowRunnerService.getRunStatusCounts(workflowId);
   }
 }

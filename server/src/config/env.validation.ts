@@ -56,6 +56,7 @@ const envSchema = z.object({
     .optional(),
   FILE_WRITE_DEBOUNCE_MS: z.coerce.number().int().positive().optional(),
   FILE_WRITE_MAX_CONCURRENT_WRITES: z.coerce.number().int().positive().optional(),
+  WORKFLOW_RUN_CONCURRENCY: z.coerce.number().int().positive().optional(),
   CLIENT_URL: z.string().url().optional(),
   APP_URL: z.string().url().default('http://localhost:5173'),
   TRUST_PROXY: z.string().optional(),

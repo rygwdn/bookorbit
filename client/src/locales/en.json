@@ -5945,6 +5945,7 @@
       "setField": "Set field",
       "refreshMetadata": "Refresh metadata",
       "reExtractCover": "Re-extract cover",
+      "runWorkflow": "Run workflow",
       "metadataLock": "Metadata lock",
       "lockAll": "Lock all",
       "unlockAll": "Unlock all",
@@ -8711,6 +8712,29 @@
     "closeImage": "Close image",
     "previousImage": "Previous image",
     "nextImage": "Next image"
+  },
+  "workflow": {
+    "bulkRun": {
+      "title": "{count, plural, =0 {Run workflow} one {Run workflow on # book} other {Run workflow on # books}}",
+      "workflowLabel": "Workflow",
+      "workflowPlaceholder": "Select a workflow...",
+      "noWorkflows": "No workflows have been created yet.",
+      "runButton": "Run",
+      "running": "Running...",
+      "status": {
+        "pending": "Pending",
+        "running": "Running",
+        "success": "Success",
+        "failed": "Failed"
+      },
+      "toast": {
+        "success": "{queued, plural, =0 {No books were queued} one {Queued # book} other {Queued # books}}",
+        "warning": "{queued, plural, =0 {No books were queued} one {Queued # book} other {Queued # books}}, skipped {skipped}"
+      },
+      "loadError": "Failed to load workflows",
+      "runError": "Failed to run workflow",
+      "cancel": "Cancel"
+    }
   },
   "titles": {
     "dashboard": "Dashboard",

@@ -68,6 +68,8 @@ export type BookWorkflowStatus = {
   stale: boolean;
 };
 
+export type WorkflowRunStatusCounts = Record<BookWorkflowRunStatus, number>;
+
 export type WorkflowDeliveryTarget =
   | { type: 'opds'; opdsUserId: number }
   | { type: 'koreader'; deviceId: string };

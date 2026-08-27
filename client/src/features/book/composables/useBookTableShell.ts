@@ -52,6 +52,7 @@ export function useBookTableShell({ books, selectionMode, querySelection, onMove
 
   const addToCollectionOpen = ref(false)
   const bulkEditOpen = ref(false)
+  const workflowRunOpen = ref(false)
   const sendBookOpen = ref(false)
   const quickViewBookId = ref<number | null>(null)
   const quickViewOpen = ref(false)
@@ -108,6 +109,7 @@ export function useBookTableShell({ books, selectionMode, querySelection, onMove
     ...bulk,
     addToCollectionOpen,
     bulkEditOpen,
+    workflowRunOpen,
     sendBookOpen,
     quickViewBookId,
     quickViewOpen,

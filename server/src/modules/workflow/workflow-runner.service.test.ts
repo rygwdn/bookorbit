@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { basename, dirname, join } from 'path';
 
+import { NotFoundException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { WorkflowDetail } from '@bookorbit/types';
 import type { BookFile, BookWorkflowOutput } from '../../db/schema';
@@ -29,6 +30,7 @@ describe('WorkflowRunnerService', () => {
   let mockRunRepo: {
     findPrimaryFileForBook: ReturnType<typeof vi.fn>;
     findPrimaryFilesForBooks: ReturnType<typeof vi.fn>;
+    countStatusesByWorkflow: ReturnType<typeof vi.fn>;
     findTemplateContext: ReturnType<typeof vi.fn>;
     findRunById: ReturnType<typeof vi.fn>;
     upsertRun: ReturnType<typeof vi.fn>;
@@ -109,6 +111,7 @@ describe('WorkflowRunnerService', () => {
     mockRunRepo = {
       findPrimaryFileForBook: vi.fn(),
       findPrimaryFilesForBooks: vi.fn(),
+      countStatusesByWorkflow: vi.fn(),
       findTemplateContext: vi.fn(),
       findRunById: vi.fn().mockImplementation((id: number) => Promise.resolve(runOutputsStore.get(id))),
       upsertRun: vi.fn(),
@@ -462,5 +465,125 @@ describe('WorkflowRunnerService', () => {
     // On-disk file from prior successful run is untouched
     const currentDiskContent = await readFile(priorBookFile.absolutePath, 'utf8');
     expect(currentDiskContent).toBe(priorDiskContent);
+  });
+
+  describe('getRunStatusCounts', () => {
+    it('throws NotFoundException when the workflow does not exist', async () => {
+      mockWorkflowRepo.findById.mockResolvedValue(undefined);
+
+      await expect(service.getRunStatusCounts(999)).rejects.toThrow(NotFoundException);
+
+      expect(mockWorkflowRepo.findById).toHaveBeenCalledWith(999);
+      expect(mockRunRepo.countStatusesByWorkflow).not.toHaveBeenCalled();
+    });
+
+    it('returns the repository status counts when the workflow exists', async () => {
+      const counts = { pending: 1, running: 2, success: 14, failed: 0 };
+      mockWorkflowRepo.findById.mockResolvedValue(copyWorkflow);
+      mockRunRepo.countStatusesByWorkflow.mockResolvedValue(counts);
+
+      await expect(service.getRunStatusCounts(copyWorkflow.id)).resolves.toBe(counts);
+
+      expect(mockRunRepo.countStatusesByWorkflow).toHaveBeenCalledWith(copyWorkflow.id);
+    });
+  });
+
+  describe('run queue concurrency', () => {
+    type RunnerHarness = { service: WorkflowRunnerService; configGet: ReturnType<typeof vi.fn> };
+
+    // Mirrors the beforeEach config: storage.appDataPath resolves, every other key falls through.
+    function buildRunner(runConcurrency: number | undefined): RunnerHarness {
+      const configGet = vi.fn().mockImplementation((key: string) => {
+        if (key === 'workflow.runConcurrency') return runConcurrency;
+        if (key === 'storage.appDataPath') return appDataPath;
+        return undefined;
+      });
+      const harnessService = new WorkflowRunnerService(
+        mockWorkflowRepo as unknown as WorkflowRepository,
+        mockRunRepo as unknown as WorkflowRunRepository,
+        lockService,
+        { get: configGet } as unknown as ConfigService,
+      );
+      return { service: harnessService, configGet };
+    }
+
+    function seedBulkRuns(bookIds: number[], firstRunId: number): void {
+      mockWorkflowRepo.findById.mockResolvedValue(copyWorkflow);
+      mockRunRepo.findPrimaryFilesForBooks.mockResolvedValue(
+        new Map(
+          bookIds.map((bookId) => [
+            bookId,
+            { id: bookId + 1000, absolutePath: sourceFilePath, format: 'epub', sizeBytes: 12, fileHash: null, libraryFolderId: 1 },
+          ]),
+        ),
+      );
+      const rows = bookIds.map((bookId, index) => ({
+        id: firstRunId + index,
+        bookId,
+        workflowId: copyWorkflow.id,
+        status: 'pending',
+        bookFileId: null,
+        sourceBookFileId: null,
+        sourceFileHash: null,
+        errorMessage: null,
+        startedAt: null,
+        finishedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+      mockRunRepo.upsertRunsBulk.mockResolvedValue(rows);
+      for (const row of rows) runOutputsStore.set(row.id, row as BookWorkflowOutput);
+    }
+
+    function parkOnTemplateContext(): Array<() => void> {
+      const contextReleases: Array<() => void> = [];
+      mockRunRepo.findTemplateContext.mockImplementation(() => {
+        const { promise, resolve } = Promise.withResolvers<null>();
+        contextReleases.push(() => resolve(null));
+        return promise;
+      });
+      return contextReleases;
+    }
+
+    it('limits in-flight runs to the configured workflow.runConcurrency', async () => {
+      const bookIds = [1, 2, 3, 4, 5, 6];
+      const { service: harnessService, configGet } = buildRunner(5);
+      seedBulkRuns(bookIds, 800);
+
+      // Every handler parks on its own unresolved template-context lookup, freezing the moment of peak load.
+      const contextReleases = parkOnTemplateContext();
+
+      await harnessService.enqueueRunBulk(bookIds, copyWorkflow.id);
+
+      // Exactly five handlers may hold the gate; the sixth waits while all five stay parked.
+      await vi.waitFor(() => expect(mockRunRepo.findTemplateContext).toHaveBeenCalledTimes(5));
+      expect(mockRunRepo.markFailed).not.toHaveBeenCalled();
+
+      // Releasing the five in-flight handlers frees a slot for the sixth, which parks on its own
+      // findTemplateContext call in turn - release iteratively until every book has been handled.
+      for (const release of contextReleases.splice(0)) release();
+      await vi.waitFor(() => expect(mockRunRepo.findTemplateContext).toHaveBeenCalledTimes(6));
+      for (const release of contextReleases.splice(0)) release();
+      await vi.waitFor(() => expect(mockRunRepo.markFailed).toHaveBeenCalledTimes(6));
+      expect(configGet).toHaveBeenCalledWith('workflow.runConcurrency');
+    });
+
+    it('falls back to two concurrent runs when the key is unset and drains them', async () => {
+      const bookIds = [1, 2, 3];
+      const { service: harnessService, configGet } = buildRunner(undefined);
+      seedBulkRuns(bookIds, 900);
+
+      const contextReleases = parkOnTemplateContext();
+
+      await harnessService.enqueueRunBulk(bookIds, copyWorkflow.id);
+
+      await vi.waitFor(() => expect(mockRunRepo.findTemplateContext).toHaveBeenCalledTimes(2));
+
+      for (const release of contextReleases.splice(0)) release();
+      await vi.waitFor(() => expect(mockRunRepo.findTemplateContext).toHaveBeenCalledTimes(3));
+      for (const release of contextReleases.splice(0)) release();
+      await vi.waitFor(() => expect(mockRunRepo.markFailed).toHaveBeenCalledTimes(3));
+      expect(configGet).toHaveBeenCalledWith('workflow.runConcurrency');
+    });
   });
 });
