@@ -40,14 +40,16 @@ export function useWorkflowBulkRun() {
   function pollStatusCounts(workflowId: number): void {
     stopPolling()
     statusCounts.value = null
-    pollTimer = window.setInterval(() => {
+    const tick = (): void => {
       void getWorkflowRunStatusCounts(workflowId)
         .then((counts) => {
           statusCounts.value = counts
           if (counts.pending + counts.running === 0) stopPolling()
         })
         .catch(() => stopPolling())
-    }, POLL_INTERVAL_MS)
+    }
+    tick()
+    pollTimer = window.setInterval(tick, POLL_INTERVAL_MS)
   }
 
   function reset(): void {

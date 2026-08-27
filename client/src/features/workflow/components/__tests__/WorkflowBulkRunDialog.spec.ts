@@ -147,6 +147,7 @@ describe('WorkflowBulkRunDialog', () => {
   it('polls status counts after queuing and reports completion when runs settle', async () => {
     const setIntervalSpy = vi.spyOn(window, 'setInterval')
     workflowApi.runBookWorkflowsBulk.mockResolvedValue({ queued: [7, 8], skipped: [] })
+    workflowApi.getWorkflowRunStatusCounts.mockResolvedValueOnce({ pending: 1, running: 1, success: 0, failed: 0 })
 
     const dialog = mountDialog()
     await flushPromises()
@@ -156,16 +157,10 @@ describe('WorkflowBulkRunDialog', () => {
     await flushPromises()
 
     expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 5000)
-    expect(dialog.find('[data-testid="workflow-bulk-run-count-pending"]').exists()).toBe(false)
-    expect(dialog.emitted('completed')).toBeUndefined()
-
-    const pollCallback = setIntervalSpy.mock.calls[0]?.[0] as () => void
-
-    workflowApi.getWorkflowRunStatusCounts.mockResolvedValueOnce({ pending: 1, running: 1, success: 0, failed: 0 })
-    pollCallback()
-    await flushPromises()
     expect(dialog.emitted('completed')).toBeUndefined()
     expect(dialog.find('[data-testid="workflow-bulk-run-count-running"]').text()).toBe('1')
+
+    const pollCallback = setIntervalSpy.mock.calls[0]?.[0] as () => void
 
     workflowApi.getWorkflowRunStatusCounts.mockResolvedValueOnce({ pending: 0, running: 0, success: 1, failed: 1 })
     pollCallback()

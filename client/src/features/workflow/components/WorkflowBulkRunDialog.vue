@@ -123,7 +123,14 @@ function handleClose() {
               <option :value="undefined" disabled>{{ t('workflow.bulkRun.workflowPlaceholder') }}</option>
               <option v-for="workflow in workflows" :key="workflow.id" :value="workflow.id">{{ workflow.name }}</option>
             </select>
-            <p v-if="!loading && workflows.length === 0" class="text-sm text-muted-foreground">
+            <p v-if="loading" class="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              {{ t('workflow.bulkRun.loadingWorkflows') }}
+            </p>
+            <p v-else-if="workflows.length === 0" class="text-sm text-muted-foreground">
               {{ t('workflow.bulkRun.noWorkflows') }}
             </p>
           </div>

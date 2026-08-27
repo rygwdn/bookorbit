@@ -8719,6 +8719,7 @@
       "workflowLabel": "Workflow",
       "workflowPlaceholder": "Select a workflow...",
       "noWorkflows": "No workflows have been created yet.",
+      "loadingWorkflows": "Loading workflows…",
       "runButton": "Run",
       "running": "Running...",
       "status": {
