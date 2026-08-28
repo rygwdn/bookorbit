@@ -3,7 +3,7 @@ import { createReadStream } from 'fs';
 import { stat } from 'fs/promises';
 import { basename } from 'path';
 
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
 
@@ -137,6 +137,8 @@ const ROOT_SECTIONS: KoreaderCatalogEntry[] = [
 
 @Injectable()
 export class KoreaderCatalogService {
+  private readonly logger = new Logger(KoreaderCatalogService.name);
+
   constructor(
     private readonly opdsBookService: OpdsBookService,
     private readonly bookService: BookService,
@@ -268,6 +270,11 @@ export class KoreaderCatalogService {
     const filters = this.buildBookFilters(query);
     const sort = this.mapSort(query.sort ?? 'recently_added', query.order);
     const workflowTarget = query.deviceId ? { type: 'koreader' as const, deviceId: query.deviceId } : undefined;
+    this.logger.log(
+      `[opds.workflow_delivery] userId=${user.id} targetType=${query.deviceId ? 'koreader' : 'none'} targetId=${query.deviceId ?? ''} - ${
+        query.deviceId ? 'workflow target resolved for koreader request' : 'workflow-substituted (optimized) files are disabled for this catalog'
+      }`,
+    );
     const { entries, total } = await this.opdsBookService.getBooksPage(
       user.id,
       sort,
@@ -332,6 +339,11 @@ export class KoreaderCatalogService {
     }
 
     const manifestWorkflowTarget = query.deviceId ? { type: 'koreader' as const, deviceId: query.deviceId } : undefined;
+    this.logger.log(
+      `[opds.workflow_delivery] userId=${user.id} targetType=${query.deviceId ? 'koreader' : 'none'} targetId=${query.deviceId ?? ''} - ${
+        query.deviceId ? 'workflow target resolved for koreader request' : 'workflow-substituted (optimized) files are disabled for this catalog'
+      }`,
+    );
     const { rows, hasNext } = await this.opdsBookService.getBookManifestPage(
       user.id,
       { filters, afterId, limit: size },

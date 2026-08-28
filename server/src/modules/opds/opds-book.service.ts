@@ -1,4 +1,4 @@
-import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SQL, and, count, eq, gt, inArray, or, sql } from 'drizzle-orm';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
@@ -137,6 +137,8 @@ export interface OpdsManifestBookRow {
 
 @Injectable()
 export class OpdsBookService {
+  private readonly logger = new Logger(OpdsBookService.name);
+
   constructor(
     @Inject(DB) private readonly db: Db,
     private readonly queryBuilder: BookQueryBuilder,
@@ -386,6 +388,7 @@ export class OpdsBookService {
           };
         }
       }
+      this.logWorkflowSubstitutionSummary(userId, bookIds, substitutes);
     }
 
     const idOrder = new Map(bookIds.map((id, index) => [id, index]));
@@ -688,6 +691,9 @@ export class OpdsBookService {
       if (substitute) {
         const [titleRow] = await this.db.select({ title: bookMetadata.title }).from(bookMetadata).where(eq(bookMetadata.bookId, bookId)).limit(1);
         const authorName = await this.fetchPrimaryAuthorName(bookId);
+        this.logger.log(
+          `[opds.workflow_delivery] [end] bookId=${bookId} fileId=${fileId ?? 0} format=${substitute.format} substituted=true - file served`,
+        );
         return {
           absolutePath: substitute.absolutePath,
           format: substitute.format,
@@ -714,12 +720,25 @@ export class OpdsBookService {
 
     const authorName = await this.fetchPrimaryAuthorName(bookId);
 
+    this.logger.log(
+      `[opds.workflow_delivery] [end] bookId=${bookId} fileId=${fileId ?? 0} format=${file.format ?? 'unknown'} substituted=false - file served`,
+    );
     return {
       absolutePath: file.absolutePath,
       format: file.format ?? 'unknown',
       title: file.title ?? `book-${bookId}`,
       authorName,
     };
+  }
+
+  private logWorkflowSubstitutionSummary(userId: number, bookIds: number[], substitutes: ReadonlyMap<number, unknown>): void {
+    const missingBookIds = bookIds
+      .filter((id) => !substitutes.has(id))
+      .slice(0, 20)
+      .join(',');
+    this.logger.log(
+      `[opds.workflow_delivery] userId=${userId} requestedBooks=${bookIds.length} substitutedBooks=${substitutes.size} missingBookIds=${missingBookIds} - workflow substitution applied to catalog page`,
+    );
   }
 
   private async fetchPrimaryAuthorName(bookId: number): Promise<string> {
@@ -896,16 +915,15 @@ export class OpdsBookService {
       filesByBook.set(row.bookId, list);
     }
 
-    if (userId !== undefined) {
-      const substitutes = options.workflowTarget
-        ? await this.workflowFileResolver.resolvePreferredOutputFilesForBooks(userId, bookIds, options.workflowTarget)
-        : new Map();
+    if (userId !== undefined && options.workflowTarget) {
+      const substitutes = await this.workflowFileResolver.resolvePreferredOutputFilesForBooks(userId, bookIds, options.workflowTarget);
       for (const [substituteBookId, substitute] of substitutes) {
         const list = filesByBook.get(substituteBookId);
         if (list && list.length > 0) {
           list[0] = { id: substitute.id, format: substitute.format, optimized: true };
         }
       }
+      this.logWorkflowSubstitutionSummary(userId, bookIds, substitutes);
     }
 
     const idOrder = new Map(bookIds.map((id, i) => [id, i]));

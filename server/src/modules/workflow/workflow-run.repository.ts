@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -63,6 +63,8 @@ export interface WorkflowStatusRow {
 
 @Injectable()
 export class WorkflowRunRepository {
+  private readonly logger = new Logger(WorkflowRunRepository.name);
+
   constructor(@Inject(DB) private readonly db: Db) {}
 
   async findPrimaryFileForBook(bookId: number): Promise<PrimaryFileInfo | null> {
@@ -412,6 +414,20 @@ export class WorkflowRunRepository {
     return removed;
   }
 
+  private deliveryTargetClause(target: WorkflowDeliveryTarget) {
+    return target.type === 'opds'
+      ? and(eq(workflowDeliveryPreferences.opdsUserId, target.opdsUserId), isNull(workflowDeliveryPreferences.koreaderDeviceId))
+      : and(eq(workflowDeliveryPreferences.koreaderDeviceId, target.deviceId), isNull(workflowDeliveryPreferences.opdsUserId));
+  }
+
+  async countDeliveryPreferences(userId: number, target: WorkflowDeliveryTarget): Promise<number> {
+    const [row] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(workflowDeliveryPreferences)
+      .where(and(eq(workflowDeliveryPreferences.userId, userId), this.deliveryTargetClause(target)));
+    return row?.count ?? 0;
+  }
+
   async findPreferredOutputFile(userId: number, bookId: number, target: WorkflowDeliveryTarget) {
     const rows = await this.findPreferredOutputFilesForBooks(userId, [bookId], target);
     return rows[0] ?? null;
@@ -420,10 +436,7 @@ export class WorkflowRunRepository {
   async findPreferredOutputFilesForBooks(userId: number, bookIds: number[], target: WorkflowDeliveryTarget) {
     if (bookIds.length === 0) return [];
 
-    const targetClause =
-      target.type === 'opds'
-        ? and(eq(workflowDeliveryPreferences.opdsUserId, target.opdsUserId), isNull(workflowDeliveryPreferences.koreaderDeviceId))
-        : and(eq(workflowDeliveryPreferences.koreaderDeviceId, target.deviceId), isNull(workflowDeliveryPreferences.opdsUserId));
+    const targetClause = this.deliveryTargetClause(target);
     const sourceFiles = alias(bookFiles, 'workflow_source_files') as typeof bookFiles;
     const rows = await this.db
       .select({
@@ -453,15 +466,22 @@ export class WorkflowRunRepository {
       .where(and(eq(workflowDeliveryPreferences.userId, userId), targetClause, inArray(bookWorkflowOutputs.bookId, bookIds)));
 
     const selected = new Map<number, (typeof rows)[number]>();
+    let skippedFormatMismatch = 0;
     for (const row of rows) {
       const inputFormats = row.inputFormats ?? [];
       const sourceFormat = (row.sourceFormat ?? '').toLowerCase();
-      if (inputFormats.length > 0 && !inputFormats.some((format) => format.toLowerCase() === sourceFormat)) continue;
+      if (inputFormats.length > 0 && !inputFormats.some((format) => format.toLowerCase() === sourceFormat)) {
+        skippedFormatMismatch += 1;
+        continue;
+      }
       const current = selected.get(row.bookId);
       if (!current || row.priority < current.priority || (row.priority === current.priority && row.preferenceId < current.preferenceId)) {
         selected.set(row.bookId, row);
       }
     }
+    this.logger.log(
+      `[workflow.resolve_preferred_output] rawRows=${rows.length} skippedFormatMismatch=${skippedFormatMismatch} matchedBooks=${selected.size} - preferred output row diagnostics`,
+    );
     return [...selected.values()];
   }
 }

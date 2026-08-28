@@ -13,7 +13,9 @@ describe('WorkflowFileResolverService', () => {
     mockRepo = {
       findPreferredOutputFile: vi.fn(),
       findPreferredOutputFilesForBooks: vi.fn(),
+      countDeliveryPreferences: vi.fn(),
     };
+    mockRepo.countDeliveryPreferences.mockResolvedValue(0);
     service = new WorkflowFileResolverService(mockRepo as unknown as WorkflowRunRepository);
   });
   const target = { type: 'opds' as const, opdsUserId: 20 };
