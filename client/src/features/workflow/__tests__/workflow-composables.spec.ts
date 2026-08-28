@@ -1,7 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { BookWorkflowStatus, CreateWorkflowRequest, WorkflowDetail } from '@bookorbit/types'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent } from 'vue'
+import type { BookWorkflowStatus, CreateWorkflowRequest, WorkflowBulkRunFailure, WorkflowBulkRunResult, WorkflowDetail } from '@bookorbit/types'
 import { useWorkflows } from '../composables/useWorkflows'
 import { useBookWorkflows } from '../composables/useBookWorkflows'
+import { useWorkflowBulkRun } from '../composables/useWorkflowBulkRun'
 import * as apiModule from '../api/workflow'
 
 vi.mock('../api/workflow', () => ({
@@ -12,6 +15,9 @@ vi.mock('../api/workflow', () => ({
   deleteWorkflow: vi.fn<(id: number) => Promise<void>>(),
   getBookWorkflowStatuses: vi.fn<(bookId: number) => Promise<BookWorkflowStatus[]>>(),
   runBookWorkflow: vi.fn<(bookId: number, workflowId: number) => Promise<void>>(),
+  runBookWorkflowsBulk: vi.fn<(workflowId: number, selection: unknown) => Promise<WorkflowBulkRunResult>>(),
+  getWorkflowRunBatchStatusCounts: vi.fn<() => Promise<unknown>>(),
+  getWorkflowRunBatchFailures: vi.fn<() => Promise<WorkflowBulkRunFailure[]>>(),
 }))
 
 const sampleWorkflow: WorkflowDetail = {
@@ -146,5 +152,98 @@ describe('useBookWorkflows', () => {
     await expect(run(100, 1)).rejects.toThrow('Server error')
 
     expect(apiModule.getBookWorkflowStatuses).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('useWorkflowBulkRun', () => {
+  const selection = { bookIds: [7, 8] }
+
+  let wrapper: VueWrapper | undefined
+
+  function useBulkInSetup<T>(useComposable: () => T): T {
+    let result!: T
+    wrapper = mount(
+      defineComponent({
+        setup() {
+          result = useComposable()
+          return () => null
+        },
+      }),
+    )
+    return result
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = undefined
+  })
+
+  it('run() delegates to the bulk endpoint and resolves the batch result', async () => {
+    const batchResult: WorkflowBulkRunResult = { runBatchId: 'batch-1', queued: [7, 8], skipped: [] }
+    vi.mocked(apiModule.runBookWorkflowsBulk).mockResolvedValueOnce(batchResult)
+    const bulk = useBulkInSetup(useWorkflowBulkRun)
+
+    const result = await bulk.run(1, selection)
+
+    expect(apiModule.runBookWorkflowsBulk).toHaveBeenCalledWith(1, selection)
+    expect(result).toEqual(batchResult)
+  })
+
+  it('polls the batch-scoped counts and fetches failures once a failure appears', async () => {
+    const setIntervalSpy = vi.spyOn(window, 'setInterval')
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval')
+    vi.mocked(apiModule.getWorkflowRunBatchStatusCounts)
+      .mockResolvedValueOnce({ pending: 1, running: 1, success: 0, failed: 0 })
+      .mockResolvedValueOnce({ pending: 0, running: 0, success: 1, failed: 1 })
+    vi.mocked(apiModule.getWorkflowRunBatchFailures).mockResolvedValueOnce([
+      { bookId: 8, bookTitle: 'Dune', errorMessage: 'binary not found on PATH', finishedAt: '2026-01-01T00:00:00Z' },
+    ])
+    const bulk = useBulkInSetup(useWorkflowBulkRun)
+
+    bulk.pollStatusCounts('batch-1', 2)
+    await flushPromises()
+
+    expect(apiModule.getWorkflowRunBatchStatusCounts).toHaveBeenCalledWith('batch-1')
+    expect(bulk.runBatchId.value).toBe('batch-1')
+    expect(bulk.queuedCount.value).toBe(2)
+    expect(bulk.statusCounts.value).toEqual({ pending: 1, running: 1, success: 0, failed: 0 })
+    expect(apiModule.getWorkflowRunBatchFailures).not.toHaveBeenCalled()
+
+    const pollCallback = setIntervalSpy.mock.calls[0]?.[0] as () => void
+    pollCallback()
+    await flushPromises()
+
+    expect(bulk.statusCounts.value).toEqual({ pending: 0, running: 0, success: 1, failed: 1 })
+    expect(apiModule.getWorkflowRunBatchFailures).toHaveBeenCalledWith('batch-1')
+    expect(bulk.failures.value).toEqual([
+      { bookId: 8, bookTitle: 'Dune', errorMessage: 'binary not found on PATH', finishedAt: '2026-01-01T00:00:00Z' },
+    ])
+    expect(clearIntervalSpy).toHaveBeenCalled()
+  })
+
+  it('stops polling on unmount and reset() clears the batch state', async () => {
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval')
+    vi.mocked(apiModule.getWorkflowRunBatchStatusCounts).mockResolvedValue({ pending: 1, running: 0, success: 0, failed: 0 })
+    const bulk = useBulkInSetup(useWorkflowBulkRun)
+
+    bulk.pollStatusCounts('batch-2', 5)
+    await flushPromises()
+    expect(bulk.runBatchId.value).toBe('batch-2')
+    expect(bulk.queuedCount.value).toBe(5)
+
+    wrapper?.unmount()
+    wrapper = undefined
+    expect(clearIntervalSpy).toHaveBeenCalled()
+
+    bulk.reset()
+
+    expect(bulk.runBatchId.value).toBeNull()
+    expect(bulk.queuedCount.value).toBe(0)
+    expect(bulk.failures.value).toEqual([])
+    expect(bulk.statusCounts.value).toBeNull()
   })
 })

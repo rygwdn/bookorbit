@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, index, integer, jsonb, pgTable, serial, text, timestamp, unique, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { boolean, check, index, integer, jsonb, pgTable, serial, text, timestamp, unique, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 
 import { bookFiles, books } from './books';
 import { opdsUsers } from './opds';
@@ -71,11 +71,14 @@ export const bookWorkflowOutputs = pgTable(
       .defaultNow()
       .notNull()
       .$onUpdateFn(() => new Date()),
+    runBatchId: uuid('run_batch_id'),
+    triggeredBy: integer('triggered_by').references(() => users.id, { onDelete: 'set null' }),
   },
   (t) => [
     uniqueIndex('book_workflow_outputs_book_workflow_uidx').on(t.bookId, t.workflowId),
     index('book_workflow_outputs_workflow_id_idx').on(t.workflowId),
     index('book_workflow_outputs_book_file_id_idx').on(t.bookFileId),
+    index('book_workflow_outputs_run_batch_id_idx').on(t.runBatchId, t.triggeredBy),
     check('book_workflow_outputs_status_chk', sql`${t.status} in ('pending', 'running', 'success', 'failed')`),
   ],
 );

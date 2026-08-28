@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { execFile } from 'child_process';
 import { copyFile, mkdir, mkdtemp, rename, rm, stat, unlink } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -12,6 +13,8 @@ import {
   resolveDownloadFilename,
   type BookWorkflowRunStatus,
   type BookWorkflowStatus,
+  type WorkflowBulkRunFailure,
+  type WorkflowBulkRunResult,
   type WorkflowRunStatusCounts,
   type WorkflowDetail,
   type WorkflowTemplateKey,
@@ -97,8 +100,7 @@ export class WorkflowRunnerService {
       (id, error) => this.logQueueFailure(id, error),
     );
   }
-
-  async enqueueRun(bookId: number, workflowId: number): Promise<BookWorkflowOutput> {
+  async enqueueRun(bookId: number, workflowId: number, userId: number): Promise<BookWorkflowOutput> {
     const workflow = await this.workflowRepo.findById(workflowId);
     if (!workflow) {
       throw new NotFoundException(`Workflow ${workflowId} not found`);
@@ -111,14 +113,15 @@ export class WorkflowRunnerService {
 
     this.assertWorkflowSupportsFormat(workflow, primaryFile.format);
 
-    const row = await this.runRepo.upsertRun(bookId, workflowId);
+    const runBatchId = randomUUID();
+    const row = await this.runRepo.upsertRun(bookId, workflowId, runBatchId, userId);
     if (row.status !== 'running') {
       this.runQueue.enqueue(row.id);
     }
     return row;
   }
 
-  async enqueueRunBulk(bookIds: number[], workflowId: number): Promise<{ queued: number[]; skipped: { bookId: number; reason: string }[] }> {
+  async enqueueRunBulk(bookIds: number[], workflowId: number, userId: number): Promise<WorkflowBulkRunResult> {
     const workflow = await this.workflowRepo.findById(workflowId);
     if (!workflow) {
       throw new NotFoundException(`Workflow ${workflowId} not found`);
@@ -145,8 +148,8 @@ export class WorkflowRunnerService {
 
       eligibleBookIds.push(bookId);
     }
-
-    const rows = await this.runRepo.upsertRunsBulk(eligibleBookIds, workflowId);
+    const runBatchId = randomUUID();
+    const rows = await this.runRepo.upsertRunsBulk(eligibleBookIds, workflowId, runBatchId, userId);
     const queued: number[] = [];
 
     for (const row of rows) {
@@ -156,15 +159,21 @@ export class WorkflowRunnerService {
       queued.push(row.bookId);
     }
 
-    return { queued, skipped };
+    return { runBatchId, queued, skipped };
   }
 
-  async getRunStatusCounts(workflowId: number): Promise<WorkflowRunStatusCounts> {
-    const workflow = await this.workflowRepo.findById(workflowId);
-    if (!workflow) {
-      throw new NotFoundException(`Workflow ${workflowId} not found`);
-    }
-    return this.runRepo.countStatusesByWorkflow(workflowId);
+  async getRunBatchStatusCounts(runBatchId: string, userId: number): Promise<WorkflowRunStatusCounts> {
+    return this.runRepo.countStatusesByRunBatch(runBatchId, userId);
+  }
+
+  async listRunBatchFailures(runBatchId: string, userId: number, limit: number): Promise<WorkflowBulkRunFailure[]> {
+    const rows = await this.runRepo.listRunBatchFailures(runBatchId, userId, limit);
+    return rows.map((row) => ({
+      bookId: row.bookId,
+      bookTitle: row.bookTitle,
+      errorMessage: row.errorMessage,
+      finishedAt: row.finishedAt ? row.finishedAt.toISOString() : null,
+    }));
   }
 
   async listBookWorkflowStatuses(bookId: number): Promise<BookWorkflowStatus[]> {

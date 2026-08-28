@@ -4,6 +4,8 @@ import type {
   CreateWorkflowDeliveryPreferenceRequest,
   CreateWorkflowRequest,
   UpdateWorkflowRequest,
+  WorkflowBulkRunFailure,
+  WorkflowBulkRunResult,
   WorkflowDeliveryPreference,
   WorkflowDetail,
   WorkflowRunStatusCounts,
@@ -63,10 +65,7 @@ export async function runBookWorkflow(bookId: number, workflowId: number): Promi
   if (!res.ok) throw new Error(await errorMessage(res, 'Failed to run workflow'))
 }
 
-export async function runBookWorkflowsBulk(
-  workflowId: number,
-  selection: BookSelectionPayload,
-): Promise<{ queued: number[]; skipped: { bookId: number; reason: string }[] }> {
+export async function runBookWorkflowsBulk(workflowId: number, selection: BookSelectionPayload): Promise<WorkflowBulkRunResult> {
   const res = await api(`/api/v1/books/workflows/${workflowId}/run-bulk`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -76,9 +75,15 @@ export async function runBookWorkflowsBulk(
   return res.json()
 }
 
-export async function getWorkflowRunStatusCounts(workflowId: number): Promise<WorkflowRunStatusCounts> {
-  const res = await api(`/api/v1/books/workflows/${workflowId}/run-status-counts`)
+export async function getWorkflowRunBatchStatusCounts(runBatchId: string): Promise<WorkflowRunStatusCounts> {
+  const res = await api(`/api/v1/books/workflow-runs/${runBatchId}/status-counts`)
   if (!res.ok) throw new Error(await errorMessage(res, 'Failed to load workflow run status counts'))
+  return res.json()
+}
+
+export async function getWorkflowRunBatchFailures(runBatchId: string, limit = 20): Promise<WorkflowBulkRunFailure[]> {
+  const res = await api(`/api/v1/books/workflow-runs/${runBatchId}/failures?limit=${limit}`)
+  if (!res.ok) throw new Error(await errorMessage(res, 'Failed to load workflow run failures'))
   return res.json()
 }
 

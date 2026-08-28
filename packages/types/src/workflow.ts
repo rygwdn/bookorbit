@@ -70,6 +70,19 @@ export type BookWorkflowStatus = {
 
 export type WorkflowRunStatusCounts = Record<BookWorkflowRunStatus, number>;
 
+export type WorkflowBulkRunResult = {
+  runBatchId: string;
+  queued: number[];
+  skipped: { bookId: number; reason: string }[];
+};
+
+export type WorkflowBulkRunFailure = {
+  bookId: number;
+  bookTitle: string;
+  errorMessage: string | null;
+  finishedAt: string | null; // ISO string
+};
+
 export type WorkflowDeliveryTarget =
   | { type: 'opds'; opdsUserId: number }
   | { type: 'koreader'; deviceId: string };

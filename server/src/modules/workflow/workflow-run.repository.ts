@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
@@ -186,11 +186,11 @@ export class WorkflowRunRepository {
     return row;
   }
 
-  async countStatusesByWorkflow(workflowId: number): Promise<Record<BookWorkflowRunStatus, number>> {
+  async countStatusesByRunBatch(runBatchId: string, userId: number): Promise<Record<BookWorkflowRunStatus, number>> {
     const rows = await this.db
       .select({ status: bookWorkflowOutputs.status, count: sql<number>`count(*)::int` })
       .from(bookWorkflowOutputs)
-      .where(eq(bookWorkflowOutputs.workflowId, workflowId))
+      .where(and(eq(bookWorkflowOutputs.runBatchId, runBatchId), eq(bookWorkflowOutputs.triggeredBy, userId)))
       .groupBy(bookWorkflowOutputs.status);
 
     const counts = Object.fromEntries(BOOK_WORKFLOW_STATUSES.map((status) => [status, 0])) as Record<BookWorkflowRunStatus, number>;
@@ -200,18 +200,44 @@ export class WorkflowRunRepository {
     return counts;
   }
 
-  async upsertRun(bookId: number, workflowId: number): Promise<BookWorkflowOutput> {
+  async listRunBatchFailures(
+    runBatchId: string,
+    userId: number,
+    limit: number,
+  ): Promise<{ bookId: number; bookTitle: string; errorMessage: string | null; finishedAt: Date | null }[]> {
+    const rows = await this.db
+      .select({
+        bookId: bookWorkflowOutputs.bookId,
+        bookTitle: sql<string>`coalesce(${bookMetadata.title}, '')`,
+        errorMessage: bookWorkflowOutputs.errorMessage,
+        finishedAt: bookWorkflowOutputs.finishedAt,
+      })
+      .from(bookWorkflowOutputs)
+      .leftJoin(bookMetadata, eq(bookMetadata.bookId, bookWorkflowOutputs.bookId))
+      .where(
+        and(eq(bookWorkflowOutputs.runBatchId, runBatchId), eq(bookWorkflowOutputs.triggeredBy, userId), eq(bookWorkflowOutputs.status, 'failed')),
+      )
+      .orderBy(desc(bookWorkflowOutputs.finishedAt))
+      .limit(limit);
+    return rows;
+  }
+
+  async upsertRun(bookId: number, workflowId: number, runBatchId: string, userId: number): Promise<BookWorkflowOutput> {
     const [row] = await this.db
       .insert(bookWorkflowOutputs)
       .values({
         bookId,
         workflowId,
         status: 'pending',
+        runBatchId,
+        triggeredBy: userId,
       })
       .onConflictDoUpdate({
         target: [bookWorkflowOutputs.bookId, bookWorkflowOutputs.workflowId],
         set: {
           status: sql`CASE WHEN ${bookWorkflowOutputs.status} = 'running' THEN ${bookWorkflowOutputs.status} ELSE 'pending' END`,
+          runBatchId,
+          triggeredBy: userId,
           updatedAt: new Date(),
         },
       })
@@ -220,7 +246,7 @@ export class WorkflowRunRepository {
     return row!;
   }
 
-  async upsertRunsBulk(bookIds: number[], workflowId: number): Promise<BookWorkflowOutput[]> {
+  async upsertRunsBulk(bookIds: number[], workflowId: number, runBatchId: string, userId: number): Promise<BookWorkflowOutput[]> {
     if (bookIds.length === 0) return [];
 
     return this.db
@@ -230,12 +256,16 @@ export class WorkflowRunRepository {
           bookId,
           workflowId,
           status: 'pending',
+          runBatchId,
+          triggeredBy: userId,
         })),
       )
       .onConflictDoUpdate({
         target: [bookWorkflowOutputs.bookId, bookWorkflowOutputs.workflowId],
         set: {
           status: sql`CASE WHEN ${bookWorkflowOutputs.status} = 'running' THEN ${bookWorkflowOutputs.status} ELSE 'pending' END`,
+          runBatchId,
+          triggeredBy: userId,
           updatedAt: new Date(),
         },
       })

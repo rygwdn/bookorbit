@@ -30,7 +30,8 @@ describe('WorkflowRunnerService', () => {
   let mockRunRepo: {
     findPrimaryFileForBook: ReturnType<typeof vi.fn>;
     findPrimaryFilesForBooks: ReturnType<typeof vi.fn>;
-    countStatusesByWorkflow: ReturnType<typeof vi.fn>;
+    countStatusesByRunBatch: ReturnType<typeof vi.fn>;
+    listRunBatchFailures: ReturnType<typeof vi.fn>;
     findTemplateContext: ReturnType<typeof vi.fn>;
     findRunById: ReturnType<typeof vi.fn>;
     upsertRun: ReturnType<typeof vi.fn>;
@@ -111,7 +112,8 @@ describe('WorkflowRunnerService', () => {
     mockRunRepo = {
       findPrimaryFileForBook: vi.fn(),
       findPrimaryFilesForBooks: vi.fn(),
-      countStatusesByWorkflow: vi.fn(),
+      countStatusesByRunBatch: vi.fn(),
+      listRunBatchFailures: vi.fn(),
       findTemplateContext: vi.fn(),
       findRunById: vi.fn().mockImplementation((id: number) => Promise.resolve(runOutputsStore.get(id))),
       upsertRun: vi.fn(),
@@ -223,6 +225,8 @@ describe('WorkflowRunnerService', () => {
       finishedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      runBatchId: null,
+      triggeredBy: null,
     });
 
     await service.processRun(runId);
@@ -285,6 +289,8 @@ describe('WorkflowRunnerService', () => {
       finishedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      runBatchId: null,
+      triggeredBy: null,
     });
 
     await service.processRun(runId);
@@ -369,6 +375,8 @@ describe('WorkflowRunnerService', () => {
       finishedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      runBatchId: null,
+      triggeredBy: null,
     });
 
     await service.processRun(runId);
@@ -427,6 +435,8 @@ describe('WorkflowRunnerService', () => {
       finishedAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      runBatchId: null,
+      triggeredBy: null,
     });
 
     await service.processRun(runId);
@@ -467,24 +477,77 @@ describe('WorkflowRunnerService', () => {
     expect(currentDiskContent).toBe(priorDiskContent);
   });
 
-  describe('getRunStatusCounts', () => {
+  describe('enqueueRun', () => {
+    it('generates a run batch id and threads it with the user through to upsertRun', async () => {
+      mockWorkflowRepo.findById.mockResolvedValue(copyWorkflow);
+      mockRunRepo.findPrimaryFileForBook.mockResolvedValue({
+        id: 1,
+        absolutePath: sourceFilePath,
+        format: 'epub',
+        sizeBytes: 12,
+        fileHash: null,
+        libraryFolderId: 1,
+      });
+      // status 'running' keeps the run queue idle for this arg-threading test
+      mockRunRepo.upsertRun.mockResolvedValue({ id: 50, status: 'running' } as BookWorkflowOutput);
+
+      await service.enqueueRun(1, copyWorkflow.id, 7);
+
+      expect(mockRunRepo.upsertRun).toHaveBeenCalledWith(1, copyWorkflow.id, expect.any(String), 7);
+    });
+
     it('throws NotFoundException when the workflow does not exist', async () => {
       mockWorkflowRepo.findById.mockResolvedValue(undefined);
 
-      await expect(service.getRunStatusCounts(999)).rejects.toThrow(NotFoundException);
+      await expect(service.enqueueRun(1, 999, 7)).rejects.toThrow(NotFoundException);
 
-      expect(mockWorkflowRepo.findById).toHaveBeenCalledWith(999);
-      expect(mockRunRepo.countStatusesByWorkflow).not.toHaveBeenCalled();
+      expect(mockRunRepo.upsertRun).not.toHaveBeenCalled();
     });
+  });
 
-    it('returns the repository status counts when the workflow exists', async () => {
-      const counts = { pending: 1, running: 2, success: 14, failed: 0 };
+  describe('enqueueRunBulk', () => {
+    it('stamps every queued book with a single run batch id and the triggering user', async () => {
       mockWorkflowRepo.findById.mockResolvedValue(copyWorkflow);
-      mockRunRepo.countStatusesByWorkflow.mockResolvedValue(counts);
+      mockRunRepo.findPrimaryFilesForBooks.mockResolvedValue(
+        new Map([[1, { id: 1001, absolutePath: sourceFilePath, format: 'epub', sizeBytes: 12, fileHash: null, libraryFolderId: 1 }]]),
+      );
+      mockRunRepo.upsertRunsBulk.mockResolvedValue([{ id: 50, bookId: 1, status: 'running' } as BookWorkflowOutput]);
 
-      await expect(service.getRunStatusCounts(copyWorkflow.id)).resolves.toBe(counts);
+      const result = await service.enqueueRunBulk([1, 2], copyWorkflow.id, 7);
 
-      expect(mockRunRepo.countStatusesByWorkflow).toHaveBeenCalledWith(copyWorkflow.id);
+      expect(mockRunRepo.upsertRunsBulk).toHaveBeenCalledWith([1], copyWorkflow.id, expect.any(String), 7);
+      expect(result.runBatchId).toBe(mockRunRepo.upsertRunsBulk.mock.calls[0]![2]);
+      expect(result.queued).toEqual([1]);
+      expect(result.skipped).toEqual([{ bookId: 2, reason: 'book has no primary content file' }]);
+    });
+  });
+
+  describe('getRunBatchStatusCounts', () => {
+    it('returns the repository counts scoped to the batch id and user without a workflow lookup', async () => {
+      const counts = { pending: 1, running: 2, success: 14, failed: 0 };
+      mockRunRepo.countStatusesByRunBatch.mockResolvedValue(counts);
+
+      await expect(service.getRunBatchStatusCounts('run-batch-id', 7)).resolves.toBe(counts);
+
+      expect(mockRunRepo.countStatusesByRunBatch).toHaveBeenCalledWith('run-batch-id', 7);
+      expect(mockWorkflowRepo.findById).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listRunBatchFailures', () => {
+    it('maps finishedAt to ISO strings and passes the limit through', async () => {
+      mockRunRepo.listRunBatchFailures.mockResolvedValue([
+        { bookId: 5, bookTitle: 'Dune', errorMessage: 'boom', finishedAt: new Date('2026-08-27T12:00:00Z') },
+        { bookId: 6, bookTitle: 'Untitled', errorMessage: null, finishedAt: null },
+      ]);
+
+      const failures = await service.listRunBatchFailures('run-batch-id', 7, 20);
+
+      expect(mockRunRepo.listRunBatchFailures).toHaveBeenCalledWith('run-batch-id', 7, 20);
+      expect(failures).toEqual([
+        { bookId: 5, bookTitle: 'Dune', errorMessage: 'boom', finishedAt: '2026-08-27T12:00:00.000Z' },
+        { bookId: 6, bookTitle: 'Untitled', errorMessage: null, finishedAt: null },
+      ]);
     });
   });
 
@@ -552,8 +615,7 @@ describe('WorkflowRunnerService', () => {
 
       // Every handler parks on its own unresolved template-context lookup, freezing the moment of peak load.
       const contextReleases = parkOnTemplateContext();
-
-      await harnessService.enqueueRunBulk(bookIds, copyWorkflow.id);
+      await harnessService.enqueueRunBulk(bookIds, copyWorkflow.id, 1);
 
       // Exactly five handlers may hold the gate; the sixth waits while all five stay parked.
       await vi.waitFor(() => expect(mockRunRepo.findTemplateContext).toHaveBeenCalledTimes(5));
@@ -574,8 +636,7 @@ describe('WorkflowRunnerService', () => {
       seedBulkRuns(bookIds, 900);
 
       const contextReleases = parkOnTemplateContext();
-
-      await harnessService.enqueueRunBulk(bookIds, copyWorkflow.id);
+      await harnessService.enqueueRunBulk(bookIds, copyWorkflow.id, 1);
 
       await vi.waitFor(() => expect(mockRunRepo.findTemplateContext).toHaveBeenCalledTimes(2));
 

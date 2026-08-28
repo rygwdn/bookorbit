@@ -18,7 +18,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const { workflows, loading, submitting, error, statusCounts, loadWorkflows, run, pollStatusCounts, stopPolling, reset } = useWorkflowBulkRun()
+const { workflows, loading, submitting, error, statusCounts, queuedCount, failures, loadWorkflows, run, pollStatusCounts, stopPolling, reset } =
+  useWorkflowBulkRun()
 
 const STATUS_KEYS: readonly BookWorkflowRunStatus[] = BOOK_WORKFLOW_STATUSES
 const SELECT_TESTID = 'workflow-bulk-run-select'
@@ -33,6 +34,18 @@ const statusLabels = computed<Record<BookWorkflowRunStatus, string>>(() => ({
   success: t('workflow.bulkRun.status.success'),
   failed: t('workflow.bulkRun.status.failed'),
 }))
+
+const processedCount = computed(() => (statusCounts.value ? statusCounts.value.success + statusCounts.value.failed : 0))
+
+const progressPercent = computed(() => (queuedCount.value > 0 ? Math.round((processedCount.value / queuedCount.value) * 100) : 0))
+
+const failuresHeading = computed(() => {
+  const totalFailed = statusCounts.value?.failed ?? 0
+  if (failures.value.length >= totalFailed) {
+    return t('workflow.bulkRun.failures.heading', { count: failures.value.length })
+  }
+  return t('workflow.bulkRun.failures.showingLatest', { shown: failures.value.length, total: totalFailed })
+})
 
 const canRun = computed(() => selectedWorkflowId.value !== null && !submitting.value)
 
@@ -73,8 +86,9 @@ async function handleRun() {
     } else {
       toast.warning(t('workflow.bulkRun.toast.warning', { queued: result.queued.length, skipped: result.skipped.length }))
     }
+    if (result.queued.length === 0) return
     awaitingCompletion = true
-    pollStatusCounts(workflowId)
+    pollStatusCounts(result.runBatchId, result.queued.length)
   } catch (runError) {
     error.value = runError instanceof Error ? runError.message : t('workflow.bulkRun.runError')
   } finally {
@@ -138,13 +152,32 @@ function handleClose() {
           <!-- Inline request error -->
           <p v-if="error" class="text-sm text-destructive" data-testid="workflow-bulk-run-error">{{ error }}</p>
 
-          <!-- Live status counts while polling -->
+          <!-- Run progress while polling -->
+          <div v-if="statusCounts" class="space-y-1.5" data-testid="workflow-bulk-run-progress">
+            <p class="text-sm text-muted-foreground">
+              {{ t('workflow.bulkRun.progress', { processed: processedCount, total: queuedCount, percent: progressPercent }) }}
+            </p>
+            <div class="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div class="h-full bg-primary transition-all" :style="{ width: progressPercent + '%' }" data-testid="workflow-bulk-run-progress-bar" />
+            </div>
+          </div>
           <div v-if="statusCounts" class="grid grid-cols-2 gap-x-6 gap-y-2 rounded-md border border-border px-4 py-3">
             <div v-for="key in STATUS_KEYS" :key="key" class="flex items-center justify-between text-sm">
               <span class="text-muted-foreground">{{ statusLabels[key] }}</span>
               <span class="font-medium tabular-nums text-foreground" :data-testid="`workflow-bulk-run-count-${key}`">
                 {{ statusCounts[key] }}
               </span>
+            </div>
+          </div>
+
+          <!-- Failure detail for the current batch -->
+          <div v-if="failures.length > 0" class="space-y-1.5">
+            <p class="text-sm font-medium text-foreground">{{ failuresHeading }}</p>
+            <div class="max-h-40 overflow-y-auto">
+              <div v-for="f in failures" :key="f.bookId" class="border-b border-border py-1 text-sm last:border-0">
+                <p class="font-medium text-foreground">{{ f.bookTitle }}</p>
+                <p v-if="f.errorMessage" class="truncate text-muted-foreground">{{ f.errorMessage }}</p>
+              </div>
             </div>
           </div>
         </div>

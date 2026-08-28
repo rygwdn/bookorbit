@@ -8722,6 +8722,11 @@
       "loadingWorkflows": "Loading workflows…",
       "runButton": "Run",
       "running": "Running...",
+      "progress": "{processed} / {total} processed ({percent}%)",
+      "failures": {
+        "heading": "{count, plural, one {# failure} other {# failures}}",
+        "showingLatest": "Showing latest {shown} of {total}"
+      },
       "status": {
         "pending": "Pending",
         "running": "Running",
