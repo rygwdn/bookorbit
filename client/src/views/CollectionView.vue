@@ -32,6 +32,7 @@ import AddToCollectionSheet from '@/features/collection/components/AddToCollecti
 import MoveToLibrarySheet from '@/features/book/components/MoveToLibrarySheet.vue'
 import { useMoveToLibraryTarget } from '@/features/book/composables/useMoveToLibraryTarget'
 import BulkEditMetadataDialog from '@/features/book/components/BulkEditMetadataDialog.vue'
+import WorkflowBulkRunDialog from '@/features/workflow/components/WorkflowBulkRunDialog.vue'
 import MetadataExportDialog from '@/features/book/components/MetadataExportDialog.vue'
 import EditCollectionDialog from '@/features/collection/components/EditCollectionDialog.vue'
 import SendBookDialog from '@/features/email/components/SendBookDialog.vue'
@@ -240,6 +241,7 @@ const {
   handleDeleteSelected,
   addToCollectionOpen,
   bulkEditOpen,
+  workflowRunOpen,
   sendBookOpen,
   quickViewBookId,
   quickViewOpen,
@@ -437,6 +439,7 @@ defineOptions({ name: 'CollectionView' })
       @edit-individually="handleEditIndividually"
       @refresh-metadata="handleBulkRefreshMetadata"
       @re-extract-cover="handleBulkReExtractCover"
+      @run-workflow="workflowRunOpen = true"
       @set-status="handleBulkSetStatus"
       @set-rating="handleBulkSetRating"
       @set-field="handleBulkSetField"
@@ -481,6 +484,13 @@ defineOptions({ name: 'CollectionView' })
       @confirm="handleBulkEditConfirm"
     />
 
+    <WorkflowBulkRunDialog
+      :open="workflowRunOpen"
+      :selection="{ bookIds: [...selectedIds] }"
+      :selection-count="selectedCount"
+      @update:open="workflowRunOpen = $event"
+      @completed="workflowRunOpen = false"
+    />
     <EditCollectionDialog
       v-if="collection && isCollectionOwner"
       :open="editCollectionOpen"
