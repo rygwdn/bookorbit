@@ -1,1 +1,0 @@
-ALTER TABLE "workflows" ADD COLUMN "output_filename_template" varchar(500);
