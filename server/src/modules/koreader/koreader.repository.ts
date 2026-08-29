@@ -48,6 +48,14 @@ export interface DeviceProgressUpsert {
 }
 
 const BATCH_QUERY_SIZE = 200;
+/**
+ * Comparable push clock for a device progress row: the client's sync timestamp when it sent
+ * one, otherwise the server write time in epoch seconds. Used to settle orphaned-vs-live
+ * conflicts on promotion.
+ */
+function orphanedProgressSeconds(row: { syncTimestamp: number | null; updatedAt: Date }): number {
+  return row.syncTimestamp ?? Math.floor(row.updatedAt.getTime() / 1000);
+}
 
 @Injectable()
 export class KoreaderRepository {
@@ -199,6 +207,75 @@ export class KoreaderRepository {
     }
 
     return result;
+  }
+
+  /**
+   * Metadata fallback candidates for an unknown document hash: book files whose on-disk
+   * basename equals the client-reported filename, case-insensitively. There is no index on a
+   * basename expression, so this is an exact equality over the accessible libraries' files
+   * rather than a fuzzy scan; the filename's extension keeps the scanned set to one format.
+   * Bounded to two rows because the caller only distinguishes none, one, and several.
+   */
+  async findBookFilesByFilenameBasename(
+    basename: string,
+    extension: string | null,
+    accessibleLibraryIds: number[] | null,
+  ): Promise<ResolvedBookFileByHash[]> {
+    const normalizedBasename = basename.toLowerCase();
+    if (!normalizedBasename) return [];
+    if (accessibleLibraryIds !== null && accessibleLibraryIds.length === 0) return [];
+
+    const libraryFilter = accessibleLibraryIds ? inArray(schema.books.libraryId, accessibleLibraryIds) : undefined;
+    return this.db
+      .select({ id: schema.bookFiles.id, bookId: schema.bookFiles.bookId, libraryId: schema.books.libraryId, format: schema.bookFiles.format })
+      .from(schema.bookFiles)
+      .innerJoin(schema.books, eq(schema.books.id, schema.bookFiles.bookId))
+      .where(
+        and(
+          sql`lower(regexp_replace(${schema.bookFiles.absolutePath}, '^.*[\\\\/]', '')) = ${normalizedBasename}`,
+          extension ? sql`(${schema.bookFiles.format} is null or lower(${schema.bookFiles.format}) = ${extension})` : undefined,
+          libraryFilter,
+        ),
+      )
+      .orderBy(asc(schema.bookFiles.id))
+      .limit(2);
+  }
+
+  /**
+   * Metadata fallback candidates for an unknown document hash: the primary file of every
+   * accessible book whose title equals the client-reported one after the normalization the
+   * service applies on its side (lowercase, unaccented, punctuation-free, single-spaced), so
+   * the comparison stays an exact equality. Same two-row bound as the filename lookup.
+   */
+  async findBookFilesByNormalizedTitle(normalizedTitle: string, accessibleLibraryIds: number[] | null): Promise<ResolvedBookFileByHash[]> {
+    if (!normalizedTitle) return [];
+    if (accessibleLibraryIds !== null && accessibleLibraryIds.length === 0) return [];
+
+    const libraryFilter = accessibleLibraryIds ? inArray(schema.books.libraryId, accessibleLibraryIds) : undefined;
+    return this.db
+      .select({ id: schema.bookFiles.id, bookId: schema.bookFiles.bookId, libraryId: schema.books.libraryId, format: schema.bookFiles.format })
+      .from(schema.bookMetadata)
+      .innerJoin(schema.books, eq(schema.books.id, schema.bookMetadata.bookId))
+      .innerJoin(schema.bookFiles, eq(schema.bookFiles.id, schema.books.primaryFileId))
+      .where(
+        and(
+          sql`btrim(regexp_replace(regexp_replace(regexp_replace(lower(public.bookorbit_unaccent(replace(${schema.bookMetadata.title}, chr(160), ' '))), '[^0-9a-z[:space:]]', '', 'g'), '[[:space:]]+', ' ', 'g'))) = ${normalizedTitle}`,
+          libraryFilter,
+        ),
+      )
+      .orderBy(asc(schema.bookFiles.id))
+      .limit(2);
+  }
+
+  /** Author names for a handful of books, ordered per book the way links display them. */
+  async getAuthorsForBooks(bookIds: number[]): Promise<{ bookId: number; name: string }[]> {
+    if (bookIds.length === 0) return [];
+    return this.db
+      .select({ bookId: schema.bookAuthors.bookId, name: schema.authors.name })
+      .from(schema.bookAuthors)
+      .innerJoin(schema.authors, eq(schema.authors.id, schema.bookAuthors.authorId))
+      .where(inArray(schema.bookAuthors.bookId, bookIds))
+      .orderBy(schema.bookAuthors.displayOrder);
   }
 
   async upsertUnmatchedBooks(userId: number, candidates: KoreaderUnmatchedCandidate[], deviceId?: string): Promise<void> {
@@ -731,6 +808,125 @@ export class KoreaderRepository {
       )
       .limit(1);
     return row ?? null;
+  }
+
+  /**
+   * Keeps exactly one orphaned row per (user, hash, device, device id): the newest push
+   * replaces the previous one. No unique index exists on orphaned_hash (the partial index
+   * only covers orphaned=false rows), so this is a delete-then-insert inside one
+   * transaction rather than an ON CONFLICT upsert.
+   */
+  async upsertOrphanedDeviceProgress(data: {
+    userId: number;
+    orphanedHash: string;
+    device: string;
+    deviceId: string;
+    percentage: number;
+    progress: string | null;
+    chapterIndex: number | null;
+    syncTimestamp: number;
+  }) {
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(schema.koreaderDeviceProgress)
+        .where(
+          and(
+            eq(schema.koreaderDeviceProgress.userId, data.userId),
+            eq(schema.koreaderDeviceProgress.orphanedHash, data.orphanedHash),
+            eq(schema.koreaderDeviceProgress.device, data.device),
+            eq(schema.koreaderDeviceProgress.deviceId, data.deviceId),
+            eq(schema.koreaderDeviceProgress.orphaned, true),
+          ),
+        );
+      await tx.insert(schema.koreaderDeviceProgress).values({
+        bookFileId: null,
+        userId: data.userId,
+        device: data.device,
+        deviceId: data.deviceId,
+        percentage: data.percentage,
+        progress: data.progress,
+        chapterIndex: data.chapterIndex,
+        syncTimestamp: data.syncTimestamp,
+        orphaned: true,
+        orphanedHash: data.orphanedHash,
+      });
+    });
+  }
+
+  /** Newest orphaned row recorded for an unlinked document hash, or null. */
+  async getNewestOrphanedDeviceProgress(userId: number, orphanedHash: string) {
+    const [row] = await this.db
+      .select()
+      .from(schema.koreaderDeviceProgress)
+      .where(
+        and(
+          eq(schema.koreaderDeviceProgress.userId, userId),
+          eq(schema.koreaderDeviceProgress.orphanedHash, orphanedHash),
+          eq(schema.koreaderDeviceProgress.orphaned, true),
+        ),
+      )
+      .orderBy(sql`${schema.koreaderDeviceProgress.syncTimestamp} desc nulls last`, desc(schema.koreaderDeviceProgress.updatedAt))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * Attaches every orphaned progress row recorded for a just-linked hash to the book file
+   * the hash now resolves to. A live row the same device already holds for that file wins
+   * on its newer position (sync timestamp, falling back to updatedAt): the partial unique
+   * index admits only one live row per (book file, user, device, device id), so the loser
+   * is removed before the winner is promoted into place. Returns the promoted count.
+   */
+  async promoteOrphanedDeviceProgress(userId: number, hash: string, bookFileId: number): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      const orphanedRows = await tx
+        .select()
+        .from(schema.koreaderDeviceProgress)
+        .where(
+          and(
+            eq(schema.koreaderDeviceProgress.userId, userId),
+            eq(schema.koreaderDeviceProgress.orphanedHash, hash),
+            eq(schema.koreaderDeviceProgress.orphaned, true),
+          ),
+        )
+        .orderBy(desc(schema.koreaderDeviceProgress.updatedAt));
+
+      let promoted = 0;
+      for (const row of orphanedRows) {
+        const [live] = await tx
+          .select()
+          .from(schema.koreaderDeviceProgress)
+          .where(
+            and(
+              eq(schema.koreaderDeviceProgress.bookFileId, bookFileId),
+              eq(schema.koreaderDeviceProgress.userId, userId),
+              eq(schema.koreaderDeviceProgress.device, row.device),
+              eq(schema.koreaderDeviceProgress.deviceId, row.deviceId),
+              eq(schema.koreaderDeviceProgress.orphaned, false),
+            ),
+          )
+          .limit(1);
+        if (!live) {
+          await tx
+            .update(schema.koreaderDeviceProgress)
+            .set({ bookFileId, orphaned: false, orphanedHash: null })
+            .where(eq(schema.koreaderDeviceProgress.id, row.id));
+          promoted += 1;
+          continue;
+        }
+        if (orphanedProgressSeconds(row) > orphanedProgressSeconds(live)) {
+          await tx.delete(schema.koreaderDeviceProgress).where(eq(schema.koreaderDeviceProgress.id, live.id));
+          await tx
+            .update(schema.koreaderDeviceProgress)
+            .set({ bookFileId, orphaned: false, orphanedHash: null })
+            .where(eq(schema.koreaderDeviceProgress.id, row.id));
+          promoted += 1;
+        } else {
+          await tx.delete(schema.koreaderDeviceProgress).where(eq(schema.koreaderDeviceProgress.id, row.id));
+        }
+      }
+      return promoted;
+    });
   }
 
   /** Device ids that have taken the outstanding reset for this file. */

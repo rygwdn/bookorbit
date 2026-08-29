@@ -743,6 +743,195 @@ describe('KoreaderRepository', () => {
     });
   });
 
+  describe('orphaned device progress', () => {
+    it('replaces the orphaned row for the same user, hash, device, and device id with the newest push', async () => {
+      const txDelete = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      const txInsert = vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
+      const tx = { delete: txDelete, insert: txInsert };
+      db.transaction.mockImplementation(async (handler: (client: typeof tx) => Promise<void>) => handler(tx));
+
+      await repo.upsertOrphanedDeviceProgress({
+        userId: 42,
+        orphanedHash: 'a'.repeat(32),
+        device: 'CrossPoint',
+        deviceId: 'crosspoint-reader',
+        percentage: 0.42,
+        progress: '/body/DocFragment[3]/body',
+        chapterIndex: 2,
+        syncTimestamp: 1700000000,
+      });
+
+      expect(txDelete).toHaveBeenCalledTimes(1);
+      expect(txInsert).toHaveBeenCalledTimes(1);
+      expect(txInsert.mock.results[0]!.value.values).toHaveBeenCalledWith({
+        bookFileId: null,
+        userId: 42,
+        device: 'CrossPoint',
+        deviceId: 'crosspoint-reader',
+        percentage: 0.42,
+        progress: '/body/DocFragment[3]/body',
+        chapterIndex: 2,
+        syncTimestamp: 1700000000,
+        orphaned: true,
+        orphanedHash: 'a'.repeat(32),
+      });
+    });
+
+    it('returns the newest orphaned row for a user and hash', async () => {
+      const row = { orphanedHash: 'a'.repeat(32), percentage: 0.42 };
+      const chain = makeQueryChain([row]);
+      db.select.mockReturnValue(chain);
+
+      await expect(repo.getNewestOrphanedDeviceProgress(42, 'a'.repeat(32))).resolves.toBe(row);
+      expect(chain.orderBy).toHaveBeenCalledTimes(1);
+      expect(chain.limit).toHaveBeenCalledWith(1);
+    });
+
+    it('returns null when no orphaned row exists for the user and hash', async () => {
+      db.select.mockReturnValue(makeQueryChain([]));
+
+      await expect(repo.getNewestOrphanedDeviceProgress(42, 'a'.repeat(32))).resolves.toBeNull();
+    });
+
+    it('promotes an orphaned row when no live row exists for the device', async () => {
+      const orphanedRow = { id: 1, device: 'CrossPoint', deviceId: 'cp-1', syncTimestamp: 100, updatedAt: new Date(1000) };
+      const txSelect = vi
+        .fn()
+        .mockReturnValueOnce(makeQueryChain([orphanedRow]))
+        .mockReturnValueOnce(makeQueryChain([]));
+      const txUpdateSet = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      const tx = {
+        select: txSelect,
+        update: vi.fn().mockReturnValue({ set: txUpdateSet }),
+        delete: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
+      };
+      db.transaction.mockImplementation(async (handler: (client: typeof tx) => Promise<number>) => handler(tx));
+
+      await expect(repo.promoteOrphanedDeviceProgress(42, 'a'.repeat(32), 44)).resolves.toBe(1);
+
+      expect(tx.update).toHaveBeenCalledTimes(1);
+      expect(txUpdateSet).toHaveBeenCalledWith({ bookFileId: 44, orphaned: false, orphanedHash: null });
+      expect(tx.delete).not.toHaveBeenCalled();
+    });
+
+    it('keeps the newer live row and drops the stale orphaned row on a device conflict', async () => {
+      const orphanedRow = { id: 1, device: 'CrossPoint', deviceId: 'cp-1', syncTimestamp: 100, updatedAt: new Date(1000) };
+      const liveRow = { id: 2, device: 'CrossPoint', deviceId: 'cp-1', syncTimestamp: 200, updatedAt: new Date(2000) };
+      const txSelect = vi
+        .fn()
+        .mockReturnValueOnce(makeQueryChain([orphanedRow]))
+        .mockReturnValueOnce(makeQueryChain([liveRow]));
+      const tx = {
+        select: txSelect,
+        update: vi.fn(),
+        delete: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
+      };
+      db.transaction.mockImplementation(async (handler: (client: typeof tx) => Promise<number>) => handler(tx));
+
+      await expect(repo.promoteOrphanedDeviceProgress(42, 'a'.repeat(32), 44)).resolves.toBe(0);
+
+      expect(tx.update).not.toHaveBeenCalled();
+      expect(tx.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the newer orphaned row, replacing the live one, when its push clock is ahead', async () => {
+      const orphanedRow = { id: 1, device: 'CrossPoint', deviceId: 'cp-1', syncTimestamp: 300, updatedAt: new Date(1000) };
+      const liveRow = { id: 2, device: 'CrossPoint', deviceId: 'cp-1', syncTimestamp: 200, updatedAt: new Date(9000) };
+      const txSelect = vi
+        .fn()
+        .mockReturnValueOnce(makeQueryChain([orphanedRow]))
+        .mockReturnValueOnce(makeQueryChain([liveRow]));
+      const txUpdateSet = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      const tx = {
+        select: txSelect,
+        update: vi.fn().mockReturnValue({ set: txUpdateSet }),
+        delete: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
+      };
+      db.transaction.mockImplementation(async (handler: (client: typeof tx) => Promise<number>) => handler(tx));
+
+      await expect(repo.promoteOrphanedDeviceProgress(42, 'a'.repeat(32), 44)).resolves.toBe(1);
+
+      // The live row (sync timestamp 200) is the loser even though its server write time is
+      // newer: the client push clock decides, and the loser must be gone before the
+      // orphaned row is promoted into the slot the partial unique index guards.
+      expect(tx.delete).toHaveBeenCalledTimes(1);
+      expect(txUpdateSet).toHaveBeenCalledWith({ bookFileId: 44, orphaned: false, orphanedHash: null });
+    });
+
+    it('falls back to the server write time when rows carry no sync timestamp', async () => {
+      const orphanedRow = { id: 1, device: 'CrossPoint', deviceId: 'cp-1', syncTimestamp: null, updatedAt: new Date(5000) };
+      const liveRow = { id: 2, device: 'CrossPoint', deviceId: 'cp-1', syncTimestamp: null, updatedAt: new Date(1000) };
+      const txSelect = vi
+        .fn()
+        .mockReturnValueOnce(makeQueryChain([orphanedRow]))
+        .mockReturnValueOnce(makeQueryChain([liveRow]));
+      const txUpdateSet = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      const tx = {
+        select: txSelect,
+        update: vi.fn().mockReturnValue({ set: txUpdateSet }),
+        delete: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
+      };
+      db.transaction.mockImplementation(async (handler: (client: typeof tx) => Promise<number>) => handler(tx));
+
+      await expect(repo.promoteOrphanedDeviceProgress(42, 'a'.repeat(32), 44)).resolves.toBe(1);
+
+      expect(txUpdateSet).toHaveBeenCalledWith({ bookFileId: 44, orphaned: false, orphanedHash: null });
+    });
+  });
+
+  describe('metadata auto-match candidates', () => {
+    it('short-circuits the filename lookup when accessible libraries are empty', async () => {
+      await expect(repo.findBookFilesByFilenameBasename('dune.epub', 'epub', [])).resolves.toEqual([]);
+      expect(db.select).not.toHaveBeenCalled();
+    });
+
+    it('short-circuits the filename lookup when the basename is empty', async () => {
+      await expect(repo.findBookFilesByFilenameBasename('', 'epub', [1])).resolves.toEqual([]);
+      expect(db.select).not.toHaveBeenCalled();
+    });
+
+    it('bounds the filename lookup to two rows', async () => {
+      const chain = makeQueryChain([]);
+      db.select.mockReturnValue(chain);
+
+      await expect(repo.findBookFilesByFilenameBasename('Dune.epub', 'epub', [1, 2])).resolves.toEqual([]);
+      expect(chain.limit).toHaveBeenCalledWith(2);
+      expect(chain.orderBy).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips the format filter when the filename carries no extension', async () => {
+      const chain = makeQueryChain([]);
+      db.select.mockReturnValue(chain);
+
+      await repo.findBookFilesByFilenameBasename('Dune', null, [1]);
+
+      expect(chain.limit).toHaveBeenCalledWith(2);
+    });
+
+    it('short-circuits the title lookup for an empty normalized title or empty libraries', async () => {
+      await expect(repo.findBookFilesByNormalizedTitle('', [1])).resolves.toEqual([]);
+      await expect(repo.findBookFilesByNormalizedTitle('dune', [])).resolves.toEqual([]);
+      expect(db.select).not.toHaveBeenCalled();
+    });
+
+    it('bounds the title lookup to two rows', async () => {
+      const chain = makeQueryChain([]);
+      db.select.mockReturnValue(chain);
+
+      await expect(repo.findBookFilesByNormalizedTitle('dune', [1, 2])).resolves.toEqual([]);
+      expect(chain.limit).toHaveBeenCalledWith(2);
+    });
+
+    it('returns author names for the candidate books without querying for an empty set', async () => {
+      const rows = [{ bookId: 55, name: 'Frank Herbert' }];
+      db.select.mockReturnValue(makeQueryChain(rows));
+
+      await expect(repo.getAuthorsForBooks([55])).resolves.toBe(rows);
+      await expect(repo.getAuthorsForBooks([])).resolves.toEqual([]);
+      expect(db.select).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('device retirement', () => {
     it('retireDevice inserts a marker and tolerates one that already exists', async () => {
       const onConflictDoNothing = vi.fn().mockResolvedValue(undefined);

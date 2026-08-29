@@ -201,45 +201,73 @@ export class KoreaderService {
     this.logger.debug(`[${SYNC_EVENT}] [start] userId=${userId} document=${data.document.slice(0, 16)} device=${device} - save progress started`);
 
     const accessibleLibraryIds = await this.repo.getAccessibleLibraryIds(userId);
-    const bookFile = await this.repo.resolveBookFileByHash(data.document, accessibleLibraryIds, userId);
+    let bookFile = await this.repo.resolveBookFileByHash(data.document, accessibleLibraryIds, userId);
 
     if (!bookFile) {
-      // The kosync progress protocol (used by KOReader and by newer kosync clients such as other
-      // reader apps) sends a document hash plus an optional metadata object ({ filename, title,
-      // authors }). The hash has nothing to match against the library, so record it in the
-      // unmatched-books queue (source 'file') together with whatever metadata the client sent, so
-      // the user can identify and manually link it to a book file; once linked, subsequent
-      // progress syncs resolve via the manual hash link. Devices running the BookOrbit plugin
-      // surface this through the match path instead — this covers devices that only speak kosync.
+      // The kosync progress protocol (used by KOReader and by newer kosync clients such as
+      // other reader apps) sends a document hash plus an optional metadata object
+      // ({ filename, title, authors }). The hash alone has nothing to match against the
+      // library: try the metadata first (filename basename, then normalized title+authors),
+      // and when the document stays unknown record it in the unmatched-books queue
+      // (source 'file') with whatever metadata the client sent, keep the pushed position as
+      // an orphaned row keyed by the hash, and answer success - the user can link the
+      // document later (manually or by a future auto-match) and the position is not lost.
+      // Devices running the BookOrbit plugin surface unknown books through the match path
+      // instead; this covers devices that only speak kosync.
       const documentHash = data.document.toLowerCase();
+      // Only document hashes the protocol can ever resolve (partial MD5) enter the metadata
+      // match, the queue, or the orphaned store; anything else gets an empty-handed success
+      // and nothing stored.
       if (MD5_HASH.test(documentHash)) {
-        const metadata = data.metadata;
-        const rawTitle = metadata?.title;
-        const rawAuthors = metadata?.authors;
-        const title = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle : null;
-        const authors = typeof rawAuthors === 'string' && rawAuthors.trim() ? rawAuthors : null;
-        await this.repo.upsertUnmatchedBooks(
-          userId,
-          [
-            {
-              hash: documentHash,
-              title,
-              authors,
-              lastOpen: data.timestamp ?? null,
-              source: 'file',
-              metadataAmbiguous: false,
-            },
-          ],
-          deviceId,
-        );
-        this.logger.log(
-          `[${SYNC_EVENT}] [unmatched] userId=${userId} document=${data.document.slice(0, 16)} device=${device} - unmatched book recorded for manual linking`,
-        );
+        bookFile = await this.autoMatchUnmatchedDocument(userId, accessibleLibraryIds, documentHash, data.metadata, data.timestamp);
+        if (bookFile) {
+          // Progress stored while the document was unknown attaches to the file it now
+          // resolves to, so no orphaned row outlives the match and the push below updates
+          // it in place rather than forking a second live row.
+          await this.repo.promoteOrphanedDeviceProgress(userId, documentHash, bookFile.id);
+        } else {
+          const metadata = data.metadata;
+          const rawTitle = metadata?.title;
+          const rawAuthors = metadata?.authors;
+          const title = typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle : null;
+          const authors = typeof rawAuthors === 'string' && rawAuthors.trim() ? rawAuthors : null;
+          await this.repo.upsertUnmatchedBooks(
+            userId,
+            [
+              {
+                hash: documentHash,
+                title,
+                authors,
+                lastOpen: data.timestamp ?? null,
+                source: 'file',
+                metadataAmbiguous: false,
+              },
+            ],
+            deviceId,
+          );
+          this.logger.log(
+            `[${SYNC_EVENT}] [unmatched] userId=${userId} document=${data.document.slice(0, 16)} device=${device} - unmatched book recorded for manual linking`,
+          );
+          // The pushed position survives keyed by the hash itself (book_file_id null), so the
+          // newest of these rows serves later pulls for the still-unknown document.
+          await this.repo.upsertOrphanedDeviceProgress({
+            userId,
+            orphanedHash: documentHash,
+            device,
+            deviceId,
+            percentage: data.percentage,
+            progress: data.progress ?? null,
+            chapterIndex: this.chapterService.parseChapterIndexFromProgress(data.progress ?? null),
+            syncTimestamp: data.timestamp ?? Math.floor(Date.now() / 1000),
+          });
+          this.logger.log(
+            `[${SYNC_EVENT}] [end] userId=${userId} document=${data.document.slice(0, 16)} device="${sanitizeLogValue(device)}" durationMs=${Date.now() - startedAt} percentage=${data.percentage} matched=false orphaned=true - unmatched document progress stored as orphaned`,
+          );
+          return { document: data.document, timestamp: data.timestamp ?? Math.floor(Date.now() / 1000) };
+        }
+      } else {
+        return { document: data.document, timestamp: data.timestamp ?? Math.floor(Date.now() / 1000) };
       }
-      this.logger.debug(
-        `[${SYNC_EVENT}] [fail] userId=${userId} document=${data.document.slice(0, 16)} durationMs=${Date.now() - startedAt} error="book not found" - save progress failed`,
-      );
-      throw new NotFoundException('Book not found for the given document hash');
     }
 
     const applied = await this.applyProgressForResolvedFile(userId, bookFile, {
@@ -257,6 +285,67 @@ export class KoreaderService {
     );
 
     return { document: data.document, timestamp: data.timestamp ?? Math.floor(Date.now() / 1000) };
+  }
+
+  /**
+   * Tries to match an unknown document hash to exactly one book file using the metadata
+   * newer kosync clients send with the push. Two independent strategies: the client
+   * filename's basename against the library's file basenames (case-insensitive), and the
+   * normalized title (plus authors, when the client sent any) against book metadata. Only
+   * a confident outcome links: exactly one file, never contradicted - ambiguity on either
+   * side or disagreement between the two sides means no match.
+   */
+  private async autoMatchUnmatchedDocument(
+    userId: number,
+    accessibleLibraryIds: number[] | null,
+    documentHash: string,
+    metadata: Record<string, unknown> | undefined,
+    timestamp: number | undefined,
+  ): Promise<KoreaderProgressBookFile | null> {
+    const filename = typeof metadata?.filename === 'string' ? metadata.filename : '';
+    // Client filenames arrive with either separator (KOReader on Windows sends backslashes).
+    const base = filename ? filename.replace(/^.*[\\/]/, '').trim() : '';
+    const title = typeof metadata?.title === 'string' ? metadata.title : '';
+    const authors = typeof metadata?.authors === 'string' ? metadata.authors : '';
+    if (!base && !title.trim()) return null;
+
+    const byFilename = base ? await this.repo.findBookFilesByFilenameBasename(base, metadataExtension(base), accessibleLibraryIds) : [];
+    let byTitle = title.trim() ? await this.repo.findBookFilesByNormalizedTitle(normalizeKoreaderMatchText(title), accessibleLibraryIds) : [];
+    if (byTitle.length > 0 && authors.trim()) {
+      // The client vouched for authorship, so the book's own author names must agree; a
+      // book without author rows cannot be confirmed and is dropped.
+      const namesByBook = new Map<number, string[]>();
+      for (const row of await this.repo.getAuthorsForBooks(byTitle.map((file) => file.bookId))) {
+        const list = namesByBook.get(row.bookId) ?? [];
+        list.push(row.name);
+        namesByBook.set(row.bookId, list);
+      }
+      const normalizedAuthors = normalizeKoreaderMatchText(authors);
+      byTitle = byTitle.filter((file) => normalizeKoreaderMatchText((namesByBook.get(file.bookId) ?? []).join(' ')) === normalizedAuthors);
+    }
+
+    const byFilenameMatch = byFilename.length === 1 ? byFilename[0] : null;
+    const byTitleMatch = byTitle.length === 1 ? byTitle[0] : null;
+    const ambiguous = byFilename.length > 1 || byTitle.length > 1;
+    const matched = ambiguous
+      ? null
+      : byFilenameMatch && byTitleMatch
+        ? byFilenameMatch.id === byTitleMatch.id
+          ? byFilenameMatch
+          : null
+        : (byFilenameMatch ?? byTitleMatch);
+    if (!matched) return null;
+
+    const strategy = byFilenameMatch ? 'filename' : 'metadata';
+    await this.repo.upsertBookHashLink(userId, documentHash, matched.id, {
+      title: title.trim() || null,
+      authors: authors.trim() || null,
+      lastOpen: timestamp ?? null,
+    });
+    this.logger.log(
+      `[${SYNC_EVENT}] [end] userId=${userId} hash=${documentHash} bookFileId=${matched.id} matchStrategy=${strategy} - auto-linked unmatched document`,
+    );
+    return matched;
   }
 
   async applyProgressForResolvedFile(
@@ -607,7 +696,21 @@ export class KoreaderService {
     const accessibleLibraryIds = await this.repo.getAccessibleLibraryIds(userId);
     const bookFile = await this.repo.resolveBookFileByHash(documentHash, accessibleLibraryIds, userId);
 
-    if (!bookFile) return null;
+    if (!bookFile) {
+      // Unknown documents can still carry progress: pushes for hashes that matched nothing
+      // are stored as orphaned rows keyed by the hash. Serve the newest back so a device
+      // whose book is not linked yet keeps its position across pulls; none -> null (404).
+      const orphaned = await this.repo.getNewestOrphanedDeviceProgress(userId, documentHash.toLowerCase());
+      if (!orphaned) return null;
+      return {
+        document: documentHash,
+        percentage: orphaned.percentage,
+        progress: orphaned.progress ?? '',
+        device: orphaned.device,
+        device_id: orphaned.deviceId,
+        timestamp: orphaned.syncTimestamp ?? Math.floor(orphaned.updatedAt.getTime() / 1000),
+      };
+    }
 
     // An outstanding reset is answered before anything stored, and answered with a position
     // rather than with silence. An empty body reads as "this server knows nothing about your
@@ -986,6 +1089,35 @@ export function isResetStartPosition(format: string | null | undefined, percenta
     }
   }
   return percentage <= RESET_CONVERGED_PERCENTAGE_FALLBACK;
+}
+
+/**
+ * Shared normalization for the metadata auto-match: lowercase, diacritics stripped (with
+ * the same expansions Postgres unaccent applies), punctuation removed, whitespace collapsed
+ * to single ASCII spaces. The repository's title lookup normalizes its side with the
+ * mirrored SQL expression, so the comparison is an exact equality on both sides.
+ */
+export function normalizeKoreaderMatchText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/ß/g, 'ss')
+    .replace(/œ/g, 'oe')
+    .replace(/æ/g, 'ae')
+    .replace(/ø/g, 'o')
+    .replace(/ł/g, 'l')
+    .replace(/đ/g, 'd')
+    .replace(/ð/g, 'd')
+    .replace(/þ/g, 'th')
+    .replace(/[^0-9a-z ]/g, '')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+}
+
+function metadataExtension(base: string): string | null {
+  const match = /\.([a-z0-9]{1,10})$/i.exec(base);
+  return match ? match[1].toLowerCase() : null;
 }
 
 function toBookorbitPercentage(koreaderPct: number): number {

@@ -93,8 +93,14 @@ export class KoreaderHashLinkService {
     }
     await this.repo.clearUnmatchedBooks(user.id, [normalizedHash]);
 
+    // Progress pushed while the document was unmatched lives in orphaned rows keyed by the
+    // hash; the link is what makes those rows resolvable again. A live row the same device
+    // already holds for this file wins on its newer position (the partial unique index
+    // admits one live row per book file, user, device, device id).
+    const promoted = await this.repo.promoteOrphanedDeviceProgress(user.id, normalizedHash, bookFileId);
+
     this.logger.log(
-      `[${HASH_LINK_CREATE_EVENT}] [end] userId=${user.id} hash=${normalizedHash.slice(0, 8)} bookId=${bookId} bookFileId=${bookFileId} durationMs=${Date.now() - startedAtMs} - hash link create completed`,
+      `[${HASH_LINK_CREATE_EVENT}] [end] userId=${user.id} hash=${normalizedHash.slice(0, 8)} bookId=${bookId} bookFileId=${bookFileId} promotedRows=${promoted} durationMs=${Date.now() - startedAtMs} - hash link create completed`,
     );
     return { hash: normalizedHash, bookId, bookFileId };
   }

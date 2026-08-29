@@ -61,6 +61,13 @@ describe('KoreaderService', () => {
     getAccessibleLibraryIds: ReturnType<typeof vi.fn>;
     resolveBookFileByHash: ReturnType<typeof vi.fn>;
     upsertUnmatchedBooks: ReturnType<typeof vi.fn>;
+    upsertBookHashLink: ReturnType<typeof vi.fn>;
+    upsertOrphanedDeviceProgress: ReturnType<typeof vi.fn>;
+    getNewestOrphanedDeviceProgress: ReturnType<typeof vi.fn>;
+    findBookFilesByFilenameBasename: ReturnType<typeof vi.fn>;
+    findBookFilesByNormalizedTitle: ReturnType<typeof vi.fn>;
+    getAuthorsForBooks: ReturnType<typeof vi.fn>;
+    promoteOrphanedDeviceProgress: ReturnType<typeof vi.fn>;
     upsertDeviceProgress: ReturnType<typeof vi.fn>;
     upsertDeviceProgressMany: ReturnType<typeof vi.fn>;
     upsertReadingProgress: ReturnType<typeof vi.fn>;
@@ -146,6 +153,13 @@ describe('KoreaderService', () => {
       getAccessibleLibraryIds: vi.fn(),
       resolveBookFileByHash: vi.fn(),
       upsertUnmatchedBooks: vi.fn(),
+      upsertBookHashLink: vi.fn().mockResolvedValue(undefined),
+      upsertOrphanedDeviceProgress: vi.fn().mockResolvedValue(undefined),
+      getNewestOrphanedDeviceProgress: vi.fn().mockResolvedValue(null),
+      findBookFilesByFilenameBasename: vi.fn().mockResolvedValue([]),
+      findBookFilesByNormalizedTitle: vi.fn().mockResolvedValue([]),
+      getAuthorsForBooks: vi.fn().mockResolvedValue([]),
+      promoteOrphanedDeviceProgress: vi.fn().mockResolvedValue(0),
       upsertDeviceProgress: vi.fn(),
       upsertDeviceProgressMany: vi.fn(),
       upsertReadingProgress: vi.fn(),
@@ -454,37 +468,36 @@ describe('KoreaderService', () => {
       });
     });
 
-    it('throws when the book file cannot be resolved', async () => {
+    it('answers an unresolvable document without metadata with success and stores nothing', async () => {
       mockRepo.resolveBookFileByHash.mockResolvedValue(null);
 
-      await expect(
-        service.saveProgress(syncUser(12), {
-          document: 'missing-document',
-          percentage: 0.2,
-        }),
-      ).rejects.toThrow(NotFoundException);
+      const result = await service.saveProgress(syncUser(12), {
+        document: 'missing-document',
+        percentage: 0.2,
+      });
 
+      expect(result).toEqual({ document: 'missing-document', timestamp: expect.any(Number) });
       expect(mockRepo.upsertUnmatchedBooks).not.toHaveBeenCalled();
+      expect(mockRepo.upsertOrphanedDeviceProgress).not.toHaveBeenCalled();
       expect(mockRepo.upsertDeviceProgress).not.toHaveBeenCalled();
       expect(mockRepo.upsertReadingProgress).not.toHaveBeenCalled();
       expect(mockBookService.autoUpdateReadStatusForProgress).not.toHaveBeenCalled();
       expect(mockAchievementEvents.emit).not.toHaveBeenCalled();
     });
 
-    it('records an unmatched book (with client metadata) for manual linking when a valid document hash cannot be resolved', async () => {
+    it('records an unmatched book (with client metadata) and stores the pushed progress as orphaned', async () => {
       mockRepo.resolveBookFileByHash.mockResolvedValue(null);
 
-      await expect(
-        service.saveProgress(syncUser(12), {
-          document: 'ABCDEF1234567890FEDCBA0123456789',
-          percentage: 0.2,
-          metadata: { filename: 'book.epub', title: 'A Book', authors: 'An Author' },
-          device: 'Kobo Sage',
-          device_id: 'device-12',
-          timestamp: 1700000000,
-        }),
-      ).rejects.toThrow(NotFoundException);
+      const result = await service.saveProgress(syncUser(12), {
+        document: 'ABCDEF1234567890FEDCBA0123456789',
+        percentage: 0.2,
+        metadata: { filename: 'book.epub', title: 'A Book', authors: 'An Author' },
+        device: 'Kobo Sage',
+        device_id: 'device-12',
+        timestamp: 1700000000,
+      });
 
+      expect(result).toEqual({ document: 'ABCDEF1234567890FEDCBA0123456789', timestamp: 1700000000 });
       expect(mockRepo.upsertUnmatchedBooks).toHaveBeenCalledWith(
         12,
         [
@@ -499,21 +512,31 @@ describe('KoreaderService', () => {
         ],
         'device-12',
       );
+      expect(mockRepo.upsertOrphanedDeviceProgress).toHaveBeenCalledWith({
+        userId: 12,
+        orphanedHash: 'abcdef1234567890fedcba0123456789',
+        device: 'Kobo Sage',
+        deviceId: 'device-12',
+        percentage: 0.2,
+        progress: null,
+        chapterIndex: null,
+        syncTimestamp: 1700000000,
+      });
       expect(mockRepo.upsertDeviceProgress).not.toHaveBeenCalled();
     });
 
-    it('records an unmatched book with null metadata when the client sends none', async () => {
+    it('records an unmatched book with null metadata and defaults the orphaned sync time to now', async () => {
       mockRepo.resolveBookFileByHash.mockResolvedValue(null);
 
-      await expect(
-        service.saveProgress(syncUser(12), {
-          document: '0123456789abcdef0123456789abcdef',
-          percentage: 0.2,
-          device: 'Kobo Sage',
-          device_id: 'device-12',
-        }),
-      ).rejects.toThrow(NotFoundException);
+      const result = await service.saveProgress(syncUser(12), {
+        document: '0123456789abcdef0123456789abcdef',
+        percentage: 0.2,
+        progress: '/body/DocFragment[2]/body',
+        device: 'Kobo Sage',
+        device_id: 'device-12',
+      });
 
+      expect(result).toEqual({ document: '0123456789abcdef0123456789abcdef', timestamp: expect.any(Number) });
       expect(mockRepo.upsertUnmatchedBooks).toHaveBeenCalledWith(
         12,
         [
@@ -528,21 +551,140 @@ describe('KoreaderService', () => {
         ],
         'device-12',
       );
+      expect(mockRepo.upsertOrphanedDeviceProgress).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 12,
+          orphanedHash: '0123456789abcdef0123456789abcdef',
+          device: 'Kobo Sage',
+          deviceId: 'device-12',
+          percentage: 0.2,
+          progress: '/body/DocFragment[2]/body',
+          syncTimestamp: expect.any(Number),
+        }),
+      );
     });
 
     it('passes empty accessible library lists to hash resolution', async () => {
       mockRepo.getAccessibleLibraryIds.mockResolvedValue([]);
       mockRepo.resolveBookFileByHash.mockResolvedValue(null);
 
-      await expect(
-        service.saveProgress(syncUser(12), {
-          document: 'no-access-document',
-          percentage: 0.2,
-        }),
-      ).rejects.toThrow(NotFoundException);
+      await service.saveProgress(syncUser(12), {
+        document: 'no-access-document',
+        percentage: 0.2,
+      });
 
       expect(mockRepo.resolveBookFileByHash).toHaveBeenCalledWith('no-access-document', [], 12);
       expect(mockRepo.upsertUnmatchedBooks).not.toHaveBeenCalled();
+    });
+
+    it('auto-links an unmatched document by filename and continues down the matched path', async () => {
+      mockRepo.resolveBookFileByHash.mockResolvedValue(null);
+      mockRepo.findBookFilesByFilenameBasename.mockResolvedValue([{ id: 44, bookId: 55, libraryId: 3, format: 'epub' }]);
+
+      const result = await service.saveProgress(syncUser(12), {
+        document: 'ABCDEF1234567890FEDCBA0123456789',
+        percentage: 0.5,
+        progress: '/body/DocFragment[7]',
+        metadata: { filename: 'Dune.epub', title: 'Dune', authors: 'Frank Herbert' },
+        device: 'Kobo Sage',
+        device_id: 'device-12',
+        timestamp: 1700000000,
+      });
+
+      expect(mockRepo.findBookFilesByFilenameBasename).toHaveBeenCalledWith('Dune.epub', 'epub', [1, 2]);
+      expect(mockRepo.findBookFilesByNormalizedTitle).toHaveBeenCalledWith('dune', [1, 2]);
+      expect(mockRepo.upsertBookHashLink).toHaveBeenCalledWith(12, 'abcdef1234567890fedcba0123456789', 44, {
+        title: 'Dune',
+        authors: 'Frank Herbert',
+        lastOpen: 1700000000,
+      });
+      expect(mockRepo.promoteOrphanedDeviceProgress).toHaveBeenCalledWith(12, 'abcdef1234567890fedcba0123456789', 44);
+      expect(mockRepo.upsertUnmatchedBooks).not.toHaveBeenCalled();
+      expect(mockRepo.upsertOrphanedDeviceProgress).not.toHaveBeenCalled();
+      expect(mockRepo.upsertDeviceProgress).toHaveBeenCalledWith(expect.objectContaining({ bookFileId: 44, userId: 12 }));
+      expect(result).toEqual({ document: 'ABCDEF1234567890FEDCBA0123456789', timestamp: 1700000000 });
+    });
+
+    it('auto-links an unmatched document by normalized title and authors when the filename gives nothing', async () => {
+      mockRepo.resolveBookFileByHash.mockResolvedValue(null);
+      mockRepo.findBookFilesByNormalizedTitle.mockResolvedValue([{ id: 44, bookId: 55, libraryId: 3, format: 'epub' }]);
+      mockRepo.getAuthorsForBooks.mockResolvedValue([{ bookId: 55, name: 'Frank Hébert' }]);
+
+      const result = await service.saveProgress(syncUser(12), {
+        document: 'ABCDEF1234567890FEDCBA0123456789',
+        percentage: 0.5,
+        metadata: { filename: 'unknown-name.epub', title: 'Dune!', authors: 'frank hébert' },
+        device: 'Kobo Sage',
+        device_id: 'device-12',
+        timestamp: 1700000000,
+      });
+
+      expect(mockRepo.findBookFilesByNormalizedTitle).toHaveBeenCalledWith('dune', [1, 2]);
+      expect(mockRepo.getAuthorsForBooks).toHaveBeenCalledWith([55]);
+      expect(mockRepo.upsertBookHashLink).toHaveBeenCalledWith(12, 'abcdef1234567890fedcba0123456789', 44, {
+        title: 'Dune!',
+        authors: 'frank hébert',
+        lastOpen: 1700000000,
+      });
+      expect(mockRepo.upsertOrphanedDeviceProgress).not.toHaveBeenCalled();
+      expect(result).toEqual({ document: 'ABCDEF1234567890FEDCBA0123456789', timestamp: 1700000000 });
+    });
+
+    it('does not auto-link when the normalized title matches several books', async () => {
+      mockRepo.resolveBookFileByHash.mockResolvedValue(null);
+      mockRepo.findBookFilesByNormalizedTitle.mockResolvedValue([
+        { id: 44, bookId: 55, libraryId: 3, format: 'epub' },
+        { id: 45, bookId: 56, libraryId: 3, format: 'epub' },
+      ]);
+
+      const result = await service.saveProgress(syncUser(12), {
+        document: 'ABCDEF1234567890FEDCBA0123456789',
+        percentage: 0.2,
+        metadata: { title: 'Essays' },
+        device: 'Kobo Sage',
+        device_id: 'device-12',
+        timestamp: 1700000000,
+      });
+
+      expect(mockRepo.upsertBookHashLink).not.toHaveBeenCalled();
+      expect(mockRepo.promoteOrphanedDeviceProgress).not.toHaveBeenCalled();
+      expect(mockRepo.upsertUnmatchedBooks).toHaveBeenCalled();
+      expect(mockRepo.upsertOrphanedDeviceProgress).toHaveBeenCalled();
+      expect(result).toEqual({ document: 'ABCDEF1234567890FEDCBA0123456789', timestamp: 1700000000 });
+    });
+
+    it('does not auto-link when the filename and title strategies disagree', async () => {
+      mockRepo.resolveBookFileByHash.mockResolvedValue(null);
+      mockRepo.findBookFilesByFilenameBasename.mockResolvedValue([{ id: 44, bookId: 55, libraryId: 3, format: 'epub' }]);
+      mockRepo.findBookFilesByNormalizedTitle.mockResolvedValue([{ id: 99, bookId: 98, libraryId: 3, format: 'epub' }]);
+
+      await service.saveProgress(syncUser(12), {
+        document: 'ABCDEF1234567890FEDCBA0123456789',
+        percentage: 0.2,
+        metadata: { filename: 'book.epub', title: 'Another Book' },
+        device: 'Kobo Sage',
+        device_id: 'device-12',
+      });
+
+      expect(mockRepo.upsertBookHashLink).not.toHaveBeenCalled();
+      expect(mockRepo.upsertOrphanedDeviceProgress).toHaveBeenCalled();
+    });
+
+    it('does not auto-link when the metadata authors do not match the book authors', async () => {
+      mockRepo.resolveBookFileByHash.mockResolvedValue(null);
+      mockRepo.findBookFilesByNormalizedTitle.mockResolvedValue([{ id: 44, bookId: 55, libraryId: 3, format: 'epub' }]);
+      mockRepo.getAuthorsForBooks.mockResolvedValue([{ bookId: 55, name: 'Someone Else' }]);
+
+      await service.saveProgress(syncUser(12), {
+        document: 'ABCDEF1234567890FEDCBA0123456789',
+        percentage: 0.2,
+        metadata: { title: 'Dune', authors: 'Frank Herbert' },
+        device: 'Kobo Sage',
+        device_id: 'device-12',
+      });
+
+      expect(mockRepo.upsertBookHashLink).not.toHaveBeenCalled();
+      expect(mockRepo.upsertOrphanedDeviceProgress).toHaveBeenCalled();
     });
 
     it('uses the default device and generated device id when the payload leaves them empty', async () => {
@@ -1319,10 +1461,49 @@ describe('KoreaderService', () => {
       await expect(service.getProgress(7, 'doc-hash')).resolves.toBeNull();
     });
 
-    it('returns null when the document hash does not resolve to a book file', async () => {
+    it('returns null when the document hash does not resolve to a book file and no orphaned progress exists', async () => {
       mockRepo.resolveBookFileByHash.mockResolvedValue(null);
 
       await expect(service.getProgress(7, 'doc-hash')).resolves.toBeNull();
+      expect(mockRepo.getNewestOrphanedDeviceProgress).toHaveBeenCalledWith(7, 'doc-hash');
+    });
+
+    it('returns orphaned progress for a document hash that resolves to nothing', async () => {
+      mockRepo.resolveBookFileByHash.mockResolvedValue(null);
+      mockRepo.getNewestOrphanedDeviceProgress.mockResolvedValue({
+        percentage: 0.42,
+        progress: '/body/DocFragment[3]/body',
+        device: 'CrossPoint',
+        deviceId: 'crosspoint-reader',
+        syncTimestamp: 1700000000,
+        updatedAt: new Date('2026-02-01T10:00:00.000Z'),
+      });
+
+      await expect(service.getProgress(7, 'ABCDEF1234567890FEDCBA0123456789')).resolves.toEqual({
+        document: 'ABCDEF1234567890FEDCBA0123456789',
+        percentage: 0.42,
+        progress: '/body/DocFragment[3]/body',
+        device: 'CrossPoint',
+        device_id: 'crosspoint-reader',
+        timestamp: 1700000000,
+      });
+      expect(mockRepo.getNewestOrphanedDeviceProgress).toHaveBeenCalledWith(7, 'abcdef1234567890fedcba0123456789');
+    });
+
+    it('falls back to the orphaned row write time when no sync timestamp was stored', async () => {
+      mockRepo.resolveBookFileByHash.mockResolvedValue(null);
+      mockRepo.getNewestOrphanedDeviceProgress.mockResolvedValue({
+        percentage: 0.1,
+        progress: null,
+        device: 'Kobo Sage',
+        deviceId: 'device-1',
+        syncTimestamp: null,
+        updatedAt: new Date('2026-02-01T10:00:01.500Z'),
+      });
+
+      const result = await service.getProgress(7, 'unknown-hash');
+      expect(result?.timestamp).toBe(Math.floor(new Date('2026-02-01T10:00:01.500Z').getTime() / 1000));
+      expect(result?.progress).toBe('');
     });
   });
 
