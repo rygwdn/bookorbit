@@ -97,7 +97,18 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
     ConfigModule.forRoot({
       isGlobal: true,
       validate: validateEnv,
-      load: [appConfig, dbConfig, authConfig, storageConfig, fileWriteConfig, emailConfig, migrationConfig, bookRequestConfig, oidcRuntimeConfig, workflowConfig],
+      load: [
+        appConfig,
+        dbConfig,
+        authConfig,
+        storageConfig,
+        fileWriteConfig,
+        emailConfig,
+        migrationConfig,
+        bookRequestConfig,
+        oidcRuntimeConfig,
+        workflowConfig,
+      ],
     }),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot({

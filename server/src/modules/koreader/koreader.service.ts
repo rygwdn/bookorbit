@@ -43,20 +43,7 @@ const RESET_REFLOWABLE_POSITION = '/body/DocFragment[1]/body';
  * would stay held forever.
  */
 const RESET_CONVERGED_PERCENTAGE_FALLBACK = 0.01;
-/**
- * Bounds on a reading session estimated from the gap between two sync pushes. Below the floor
- * the gap is a page turn rather than a sitting; above the ceiling it is mostly idle time, and
- * recording it whole would credit a night's sleep as reading.
- */
-const MIN_SYNC_SESSION_SECONDS = 60;
-const MAX_SYNC_SESSION_SECONDS = 30 * 60;
-/**
- * How long a device is still treated as reporting its own page timings after its last sweep.
- * Bounded rather than permanent: a plugin that is removed, or quietly stops working, would
- * otherwise leave that device unable to have its reading recorded ever again. An estimate that
- * does turn out to overlap a later sweep's measured session is retired by that sweep.
- */
-const PLUGIN_SWEEP_SILENCE_MS = 30 * 24 * 60 * 60 * 1000;
+
 const MD5_HASH = /^[0-9a-f]{32}$/;
 
 /** `format` routes the incoming position to the cfi or the pageNumber column. */
