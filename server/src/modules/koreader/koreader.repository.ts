@@ -333,7 +333,7 @@ export class KoreaderRepository {
       .innerJoin(schema.bookFiles, eq(schema.bookFiles.id, schema.books.primaryFileId))
       .where(
         and(
-          sql`btrim(regexp_replace(regexp_replace(regexp_replace(lower(public.bookorbit_unaccent(replace(${schema.bookMetadata.title}, chr(160), ' '))), '[^0-9a-z[:space:]]', '', 'g'), '[[:space:]]+', ' ', 'g'))) = ${normalizedTitle}`,
+          sql`btrim(regexp_replace(regexp_replace(lower(public.bookorbit_unaccent(replace(${schema.bookMetadata.title}, chr(160), ' '))), '[^0-9a-z[:space:]]', '', 'g'), '[[:space:]]+', ' ', 'g')) = ${normalizedTitle}`,
           libraryFilter,
         ),
       )
