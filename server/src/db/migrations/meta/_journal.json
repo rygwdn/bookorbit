@@ -680,6 +680,13 @@
       "when": 1789992342253,
       "tag": "0096_rebase_upstream_schema_reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1789993667602,
+      "tag": "0097_reconcile_skipped_upstream_schema",
+      "breakpoints": true
     }
   ]
 }
