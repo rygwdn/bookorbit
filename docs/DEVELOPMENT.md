@@ -284,6 +284,10 @@ cd server && pnpm db:generate baseline && pnpm run db:migrate
 
 **After production launch:** Never wipe migrations. Every schema change gets its own incremental migration.
 
+On `personal-integration`, preserve shipped migration SQL and journal timestamps when rebasing. Journal indices must remain unique and chronological; SQL filename prefixes need not match those indices. Generate custom compatibility migrations with `cd server && pnpm exec drizzle-kit generate --custom --name=<reason>` when a schema diff cannot preserve existing data.
+
+The workflow/Kobo hash-history bridge runs before upstream's narrower hash-reason constraint, temporarily records workflow history IDs in a transaction-local table, and restores their original reasons after installing the combined constraint. Run the runtime migrator for the entire pending journal in one transaction, not individual SQL files. Verify both an upgrade with existing `workflow_regenerate` history and a fresh database.
+
 ### Full Reset
 
 When local migration state is broken or you need a clean slate:

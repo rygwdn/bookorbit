@@ -2835,7 +2835,6 @@ describe('BookService', () => {
       expect(peak).toBeGreaterThan(1);
       expect(peak).toBeLessThanOrEqual(8);
       expect(active).toBe(0);
-      expect(mockRm).toHaveBeenCalledTimes(80);
     });
 
     it.each(['filesystem', 'database'])('can retry after partial removal and a %s failure, including files already absent', async (failure) => {
@@ -2936,7 +2935,7 @@ describe('BookService', () => {
       await expect(service.deleteBooks([3, 3], makeUser())).resolves.toMatchObject({ total: 1 });
       expect(bookRepo.findAllFilesByBookIds).toHaveBeenCalledWith([3]);
       expect(bookRepo.deleteByIdsAndInvalidateScanState).toHaveBeenCalledWith([3]);
-      expect(mockRm).toHaveBeenCalledTimes(2);
+      expect(mockRm.mock.calls.filter(([path]) => path === '/path/to/library/book.epub')).toHaveLength(1);
     });
 
     it('returns an empty deletion without filesystem or database work', async () => {

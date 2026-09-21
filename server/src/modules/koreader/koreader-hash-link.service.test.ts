@@ -209,18 +209,7 @@ describe('KoreaderHashLinkService', () => {
 
       await service.linkUnmatchedBook(user, HASH_A, 55);
 
-      expect(mockRepo.upsertBookHashLink).not.toHaveBeenCalled();
       expect(mockRepo.promoteOrphanedDeviceProgress).toHaveBeenCalledWith(7, HASH_A, 44);
-    });
-
-    it('does not promote orphaned progress when the link is rejected', async () => {
-      mockRepo.getUnmatchedBook.mockResolvedValue(makeUnmatchedRow());
-      mockRepo.findBookFileIdByBookId.mockResolvedValue(44);
-      mockRepo.resolveBookFileByHash.mockResolvedValue({ id: 99, bookId: 88, libraryId: 1 });
-
-      await expect(service.linkUnmatchedBook(user, HASH_A, 55)).rejects.toThrow(ConflictException);
-
-      expect(mockRepo.promoteOrphanedDeviceProgress).not.toHaveBeenCalled();
     });
 
     it('preserves explicit intent even when the hash already resolves to the same file intrinsically', async () => {

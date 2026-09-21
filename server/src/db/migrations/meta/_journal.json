@@ -705,68 +705,103 @@
     {
       "idx": 100,
       "version": "7",
-      "when": 1790634252132,
-      "tag": "0100_audio_bookmark_position_ignores_tombstones",
+      "when": 1790459061878,
+      "tag": "0099_reconcile_workflow_schema",
       "breakpoints": true
     },
     {
       "idx": 101,
       "version": "7",
-      "when": 1790876695526,
-      "tag": "0101_refresh_unmeasured_media_overlay_durations",
+      "when": 1790459112382,
+      "tag": "0100_reconcile_skipped_upstream_schema",
       "breakpoints": true
     },
     {
       "idx": 102,
+      "version": "7",
+      "when": 1790634252132,
+      "tag": "0100_audio_bookmark_position_ignores_tombstones",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1790815572819,
+      "tag": "0103_reconcile_fractional_finished_threshold",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1790876695526,
+      "tag": "0104_refresh_unmeasured_media_overlay_durations",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
       "version": "7",
       "when": 1791126075111,
       "tag": "0102_add_book_journal_and_annotation_stars",
       "breakpoints": true
     },
     {
-      "idx": 103,
+      "idx": 106,
+      "version": "7",
+      "when": 1791330236441,
+      "tag": "0110_preserve_workflow_hash_history_during_kobo_upgrade",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
       "version": "7",
       "when": 1791330236442,
       "tag": "0103_fix_kobo_koreader_download_matching",
       "breakpoints": true
     },
     {
-      "idx": 104,
+      "idx": 108,
       "version": "7",
       "when": 1791351760200,
       "tag": "0104_add_library_file_write_all_files",
       "breakpoints": true
     },
     {
-      "idx": 105,
+      "idx": 109,
       "version": "7",
       "when": 1791388600818,
       "tag": "0105_add_library_file_write_read_along",
       "breakpoints": true
     },
     {
-      "idx": 106,
+      "idx": 110,
       "version": "7",
       "when": 1791429899868,
       "tag": "0106_add_book_request_pairs",
       "breakpoints": true
     },
     {
-      "idx": 107,
+      "idx": 111,
+      "version": "7",
+      "when": 1791470380608,
+      "tag": "0109_reconcile_workflow_kobo_hash_reasons",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
       "version": "7",
       "when": 1791658522588,
       "tag": "0107_add_provider_metadata_cache",
       "breakpoints": true
     },
     {
-      "idx": 108,
+      "idx": 113,
       "version": "7",
       "when": 1791684796856,
       "tag": "0108_add_read_aloud_delivery",
       "breakpoints": true
     },
     {
-      "idx": 109,
+      "idx": 114,
       "version": "7",
       "when": 1791821546946,
       "tag": "0109_add_hardcover_match_basis",
