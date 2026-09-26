@@ -328,7 +328,7 @@ describe('OpdsBookService', () => {
   });
 
   it('bypasses workflow substitution when an explicit fileId is requested', async () => {
-    const { service, workflowFileResolver } = makeService([[{ absolutePath: '/books/a.epub', format: 'epub', title: 'Dune' }], []]);
+    const { service, workflowFileResolver } = makeService([[{ id: 42, absolutePath: '/books/a.epub', format: 'epub', title: 'Dune' }], []]);
 
     await expect(service.getBookFiles(7, 42, 3)).resolves.toMatchObject({
       absolutePath: '/books/a.epub',

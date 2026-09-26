@@ -39,7 +39,6 @@ import { BookCoverStore } from '../book-cover-store/book-cover-store.service';
 @Public()
 @UseGuards(OpdsEnabledGuard, OpdsAuthGuard)
 export class OpdsController {
-
   constructor(
     private readonly opdsService: OpdsService,
     private readonly opdsBookService: OpdsBookService,

@@ -767,6 +767,7 @@ export class OpdsBookService {
     return {
       absolutePath: file.absolutePath,
       format: file.format ?? 'unknown',
+      readAlong: file.format?.toLowerCase() === 'epub' && file.mediaOverlayAvailable,
       title: file.title ?? `book-${bookId}`,
       authorName,
     };
