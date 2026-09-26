@@ -18485,6 +18485,7 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+
     "public.achievements": {
       "name": "achievements",
       "schema": "",

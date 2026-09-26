@@ -1,4 +1,5 @@
 -- Guarded re-application of the workflow feature schema.
+-- Keep this rebased migration hash distinct so upstream 0096-0098 run before the new watermark.
 --
 -- personal-integration previously shipped this exact schema (book_workflow_outputs,
 -- workflow_delivery_preferences, workflow_steps, workflows, and the book_files /

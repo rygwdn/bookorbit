@@ -1,5 +1,6 @@
 -- Reapply upstream schema changes skipped by the pre-rebase migration watermark.
 -- Every operation is idempotent so fresh installs and divergent production histories converge.
+-- Keep the rebased hash distinct so timestamp reconciliation preserves eligibility of upstream 0096-0098.
 
 -- Guarded replay of 0091_add_read_aloud_and_podcasts.sql for databases whose migration watermark skipped it.
 CREATE TABLE IF NOT EXISTS "collection_podcasts" (
