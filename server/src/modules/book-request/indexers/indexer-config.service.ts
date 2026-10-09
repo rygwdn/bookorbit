@@ -10,6 +10,7 @@ import type {
   IndexerListResult,
   IndexerSettings,
   IndexerSettingsField,
+  IndexerLoginPayload,
   IndexerTestResult,
 } from '@bookorbit/types';
 
@@ -20,6 +21,8 @@ import type { RequestIndexerManagerRow, RequestIndexerRow } from '../../../db/sc
 import { RequestCredentialService } from '../request-credential.service';
 import type { ResolvedIndexerConfig, ResolvedIndexerSeedPolicy } from './indexer-adapter';
 import { IndexerRegistry } from './indexer-registry';
+import { IndexerLoginException, LOGIN_FAILURES } from './indexer-login';
+import { withDeadline } from '../../../common/utils/with-deadline.utils';
 import { IndexerRepository } from './indexer.repository';
 import { IndexerManagerRepository } from './indexer-manager.repository';
 import type { CreateIndexerDto, UpdateIndexerDto } from './dto/indexer.dto';
@@ -188,6 +191,89 @@ export class IndexerConfigService {
       throw new BadGatewayException({ message: reason, errorCode: 'INDEXER_TEST_FAILED', statusCode: HttpStatus.BAD_GATEWAY });
     }
     return result;
+  }
+
+  async login(dto: IndexerLoginPayload, signal: AbortSignal): Promise<IndexerItem> {
+    const started = Date.now();
+    const indexerId = dto.indexerId ?? 'new';
+    this.logger.log(`[request_indexer.login] [start] indexerId=${indexerId} - explicit sign-in started`);
+    const input = { username: dto.username.trim(), password: dto.password };
+    dto.password = '';
+    try {
+      signal.throwIfAborted();
+      if (!this.credentials.isConfigured()) {
+        throw indexerError('REQUEST_ENCRYPTION_KEY_MISSING', 'Configure BOOK_REQUEST_ENCRYPTION_KEY before signing in.');
+      }
+      const configuration: CreateIndexerDto = { ...dto.configuration };
+      if ('credential' in configuration) throw indexerError('INDEXER_SETTINGS_INVALID', 'Sign-in cannot include a manual credential.');
+      const adapter = this.registry.require(configuration.adapterType);
+      if (!adapter.login) throw indexerError('INDEXER_LOGIN_UNSUPPORTED', 'This indexer does not support sign-in.');
+      const existing = dto.indexerId === undefined ? null : await this.requireIndexer(dto.indexerId);
+      if (existing?.managerId != null || (existing && existing.adapterType !== configuration.adapterType)) {
+        throw indexerError('INDEXER_LOGIN_UNSUPPORTED', 'Sign-in requires a standalone source of the configured type.');
+      }
+      const base = new URL(configuration.baseUrl);
+      if (base.protocol !== 'https:' || base.username || base.password || base.port || base.pathname !== '/' || base.search || base.hash) {
+        throw indexerError('INDEXER_URL_UNSAFE', 'Sign-in requires a configured HTTPS origin without credentials, port, path or query.');
+      }
+      const declared = new Set((adapter.settingsFields ?? []).map((field) => field.key));
+      if (Object.keys(configuration.settings ?? {}).some((key) => !declared.has(key))) {
+        throw indexerError('INDEXER_SETTINGS_INVALID', 'Sign-in settings contain an undeclared field.');
+      }
+      const config: ResolvedIndexerConfig = {
+        id: existing?.id ?? 0,
+        managerId: null,
+        managerPriority: null,
+        name: configuration.name.trim(),
+        color: configuration.color ?? null,
+        adapterType: configuration.adapterType as IndexerAdapterType,
+        baseUrl: base.origin,
+        credential: null,
+        credentialError: null,
+        allowPrivateAddress: false,
+        categories: mergeCategories(this.registry.defaultCategories(configuration.adapterType), configuration.categories),
+        settings: this.cleanSettings(configuration.adapterType, configuration.settings),
+        networkProfile: configuration.networkProfile ?? null,
+        applyTrackerSeedGoals: configuration.applyTrackerSeedGoals ?? true,
+        seedRatioGoal: configuration.seedRatioGoal ?? null,
+        seedTimeMinutes: configuration.seedTimeMinutes ?? null,
+        disabledMediaKinds: normalizeDisabledMediaKinds(configuration.disabledMediaKinds),
+        isbnSearchDisabled: configuration.isbnSearchDisabled ?? false,
+        perIndexerTimeoutSeconds: 30,
+        overallSearchBudgetSeconds: null,
+        autoExpandCategories: false,
+      };
+      let credential: string;
+      try {
+        credential = await withDeadline(adapter.login(input, config, signal), signal);
+        signal.throwIfAborted();
+      } catch (error) {
+        const failure = error instanceof IndexerLoginException ? error.failure : signal.aborted ? 'timeout' : 'error';
+        const result = LOGIN_FAILURES[failure];
+        throw indexerError(result.errorCode, result.message);
+      }
+      if (typeof credential !== 'string' || !credential.trim() || credential.length > 1024 || credential === input.password) {
+        throw indexerError('INDEXER_LOGIN_FAILED', LOGIN_FAILURES.error.message);
+      }
+      const save = { ...configuration, baseUrl: base.origin, settings: config.settings ?? undefined, credential };
+      const result = existing ? await this.update(existing.id, save) : await this.create(save);
+      this.logger.log(
+        `[request_indexer.login] [end] indexerId=${result.id} durationMs=${Date.now() - started} created=${!existing} - session stored`,
+      );
+      return result;
+    } catch (error) {
+      this.logger.warn(
+        `[request_indexer.login] [fail] indexerId=${indexerId} durationMs=${Date.now() - started} errorClass=IndexerLoginError error="Sign-in rejected" - sign-in did not store a session`,
+      );
+      if (error instanceof BadRequestException || error instanceof NotFoundException || error instanceof ConflictException) throw error;
+      throw indexerError(
+        signal.aborted ? 'INDEXER_LOGIN_TIMEOUT' : 'INDEXER_LOGIN_FAILED',
+        signal.aborted ? LOGIN_FAILURES.timeout.message : LOGIN_FAILURES.error.message,
+      );
+    } finally {
+      input.password = '';
+      dto.password = '';
+    }
   }
 
   /**

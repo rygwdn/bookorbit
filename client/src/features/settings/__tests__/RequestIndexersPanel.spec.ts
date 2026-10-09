@@ -1,9 +1,11 @@
+import { nextTick } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { INDEXER_COLORS, type IndexerAdapterDescriptor, type IndexerItem, type IndexerManagerItem } from '@bookorbit/types'
 
-const { apiMock, toastMock, superuser } = vi.hoisted(() => ({
+const { apiMock, toastMock, superuser, manageSettings } = vi.hoisted(() => ({
   superuser: { value: true },
+  manageSettings: { value: true },
   apiMock: vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(),
   toastMock: {
     success: vi.fn<(message: string) => void>(),
@@ -20,8 +22,8 @@ vi.mock('@/features/auth/composables/usePermissions', async () => {
   const { computed } = await import('vue')
   return {
     usePermissions: () => ({
+      hasPermission: (permission: string) => permission === 'manage_app_settings' && manageSettings.value,
       isSuperuser: computed(() => superuser.value),
-      hasPermission: () => true,
     }),
   }
 })
@@ -92,6 +94,132 @@ const PLUGIN = descriptor({
       minItems: 1,
     },
   ],
+})
+
+const LOGIN_ADAPTER = descriptor({
+  type: 'heartleo',
+  label: 'Heartleo',
+  builtIn: false,
+  supportsLogin: true,
+  requiresCredential: true,
+  credentialKind: 'sessionId',
+} as Partial<IndexerAdapterDescriptor>)
+
+describe('provider sign-in', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    superuser.value = true
+    manageSettings.value = true
+  })
+  afterEach(() => {
+    mounted?.unmount()
+    mounted = null
+    document.body.innerHTML = ''
+  })
+  it('creates a source with its complete configuration and stores only the returned session', async () => {
+    const wrapper = await mountPanel({ adapters: [LOGIN_ADAPTER], indexers: [indexer()] })
+    await openCreate(wrapper, 'heartleo')
+    typeInto('#indexer-name', 'My Heartleo')
+    typeInto('#indexer-url', 'https://heartleo.example')
+    typeInto('#indexer-login-username', 'reader@example.test')
+    typeInto('#indexer-login-password', 'synthetic-password')
+    expect(sheet().querySelector('input[type="password"]')).toBeNull()
+    apiMock.mockImplementation((url: string) => {
+      if (url === `${PATH}/login`) {
+        return Promise.resolve(response(indexer({ id: 33, name: 'My Heartleo', adapterType: 'heartleo', hasCredential: true })))
+      }
+      if (url === `${PATH}/adapters`) return Promise.resolve(response({ adapters: [LOGIN_ADAPTER], pluginFailures: [] }))
+      return Promise.resolve(response({ indexers: [], encryptionConfigured: true }))
+    })
+
+    clickInSheet('Sign in')
+    await nextTick()
+    expect(apiMock.mock.calls.some(([url]) => url === `${PATH}/login`)).toBe(true)
+    expect(sheet().querySelector<HTMLInputElement>('#indexer-login-password')?.value).toBe('')
+    await flushPromises()
+
+    const login = apiMock.mock.calls.find(([url]) => url === `${PATH}/login`)
+    expect(login).toBeDefined()
+    expect(JSON.parse(String(login?.[1]?.body))).toMatchObject({
+      configuration: { name: 'My Heartleo', adapterType: 'heartleo', baseUrl: 'https://heartleo.example' },
+      username: 'reader@example.test',
+      password: 'synthetic-password',
+    })
+    expect(JSON.stringify(JSON.parse(String(login?.[1]?.body)).configuration)).not.toContain('credential')
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('signs in to an existing source and preserves its session and configuration on failure', async () => {
+    const original = indexer({ adapterType: 'heartleo', name: 'Saved Heartleo', hasCredential: true })
+    const wrapper = await mountPanel({ adapters: [LOGIN_ADAPTER], indexers: [original] })
+    apiMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === `${PATH}/login`
+          ? response({ errorCode: 'INDEXER_LOGIN_UNAUTHORIZED' }, false)
+          : response({ indexers: [original], encryptionConfigured: true }),
+      ),
+    )
+    await clickInPanel(wrapper, 'Edit Saved Heartleo')
+    typeInto('#indexer-login-username', 'reader')
+    typeInto('#indexer-login-password', 'bad-synthetic-password')
+    clickInSheet('Sign in')
+    await nextTick()
+    expect(sheet().querySelector<HTMLInputElement>('#indexer-login-password')?.value).toBe('')
+    await flushPromises()
+
+    expect(apiMock.mock.calls.find(([url]) => url === `${PATH}/login`)?.[1]?.method).toBe('POST')
+    expect(sheet().querySelector<HTMLInputElement>('#indexer-credential')?.value).toBe('')
+    expect(sheet().textContent).toContain('The sign-in details were not accepted.')
+    expect(apiMock.mock.calls.some(([url, init]) => url === `${PATH}/1` && init?.method === 'PUT')).toBe(false)
+  })
+
+  it('hides provider login for non-admins and unsupported adapters while retaining manual session setup', async () => {
+    const wrapper = await mountPanel({ adapters: [LOGIN_ADAPTER, PLUGIN], indexers: [indexer()] })
+    manageSettings.value = false
+    superuser.value = true
+    await openCreate(wrapper, 'heartleo')
+    expect(sheet().querySelector('#indexer-login-password')).toBeNull()
+    clickInSheet('Cancel')
+    await openCreate(wrapper, 'demo-tracker')
+    expect(sheet().querySelector('#indexer-login-password')).toBeNull()
+    expect(sheet().querySelector('#indexer-credential')).not.toBeNull()
+    expect(sheet().textContent).not.toContain('Sign in')
+  })
+
+  it('prevents duplicate submissions and aborts a dismissed sign-in without applying stale state', async () => {
+    const wrapper = await mountPanel({ adapters: [LOGIN_ADAPTER], indexers: [indexer()] })
+    await openCreate(wrapper, 'heartleo')
+    typeInto('#indexer-name', 'My Heartleo')
+    typeInto('#indexer-url', 'https://heartleo.example')
+    typeInto('#indexer-login-username', 'reader')
+    typeInto('#indexer-login-password', 'synthetic-password')
+    let capturedSignal: AbortSignal | undefined
+    apiMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === `${PATH}/login`) {
+        capturedSignal = init?.signal as AbortSignal
+        return Promise.withResolvers<Response>().promise
+      }
+      return Promise.resolve(response({ indexers: [], encryptionConfigured: true }))
+    })
+
+    const signIn = [...sheet().querySelectorAll('button')].find((button) => nameOf(button).includes('Sign in'))!
+    signIn.click()
+    signIn.click()
+    await nextTick()
+    expect(apiMock.mock.calls.filter(([url]) => url === `${PATH}/login`)).toHaveLength(1)
+    expect(sheet().querySelector<HTMLInputElement>('#indexer-login-password')?.value).toBe('')
+    const saveButton = [...sheet().querySelectorAll('button')].find((button) => nameOf(button) === 'Save')!
+    expect(saveButton.disabled).toBe(true)
+    clickInSheet('Cancel')
+    await nextTick()
+    const discard = [...document.body.querySelectorAll('button')].find((button) => nameOf(button).includes('Discard changes'))
+    expect(discard).toBeDefined()
+    discard?.click()
+    await flushPromises()
+
+    expect(capturedSignal?.aborted).toBe(true)
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
 })
 
 function indexer(overrides: Partial<IndexerItem> = {}): IndexerItem {
@@ -284,14 +412,18 @@ async function openCreate(wrapper: VueWrapper, type = 'torznab') {
   }
 
   const row = wrapper.findAll('li').find((item) => item.text().includes(type))
-  const button = row?.findAll('button').find((candidate) => candidate.text().includes('Set up'))
+  const button = row?.findAll('button').find((candidate) => candidate.text().includes('Set up') || candidate.text().includes('Configure'))
   if (button === undefined) throw new Error(`no set-up button for "${type}"`)
   await button.trigger('click')
   await flushPromises()
 }
 
 describe('RequestIndexersPanel', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    superuser.value = true
+    manageSettings.value = true
+  })
   afterEach(() => {
     // Unmounted, not just wiped: a panel left mounted stays reactive and teleports its sheet back
     // into the body on the next render, where the following test finds it and reads it as its own.

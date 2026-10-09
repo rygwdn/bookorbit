@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronDown, Loader2, Plug, Plus, RefreshCw, Server as ServerIcon, ServerCog, Trash2, TriangleAlert, Upload } from '@lucide/vue'
 import { toast } from 'vue-sonner'
-import { BOOK_REQUEST_MEDIA_KINDS, INDEXER_ADAPTER_TYPES, MAX_INDEXER_SEED_TIME_MINUTES } from '@bookorbit/types'
+import { BOOK_REQUEST_MEDIA_KINDS, INDEXER_ADAPTER_TYPES, MAX_INDEXER_SEED_TIME_MINUTES, Permission } from '@bookorbit/types'
 import type { IndexerAdapterDescriptor, IndexerItem, IndexerSettingsField } from '@bookorbit/types'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -45,6 +45,7 @@ const {
   loadFailed,
   fetchIndexers,
   save,
+  login,
   remove,
   test,
   inspectPlugin,
@@ -58,8 +59,8 @@ const {
 
 watch(encryptionConfigured, (configured) => emit('encryptionState', configured))
 
-const { isSuperuser } = usePermissions()
-
+const { isSuperuser, hasPermission } = usePermissions()
+const canManageAppSettings = computed(() => hasPermission(Permission.ManageAppSettings))
 /** Installing a plugin runs its code in the server process, so only an administrator may. */
 const canInstallPlugins = isSuperuser
 const hasPluginUpdateChannels = computed(() => adapters.value.some((adapter) => !adapter.builtIn && adapter.updateable))
@@ -131,6 +132,11 @@ const {
   sheetTitle,
   canScopeMediaKinds,
   describeFailure,
+  loginUsername,
+  loginPassword,
+  loginBusy,
+  loginFailure,
+  handleLogin,
   startCreate,
   startCreateFor,
   handleCreateTypeChange,
@@ -162,7 +168,7 @@ const {
   isMediaKindSearched,
   toggleMediaKind,
   handleSave,
-} = useIndexerDraft({ indexers, adapterFor, adapterLabel, save })
+} = useIndexerDraft({ indexers, adapterFor, adapterLabel, save, login })
 
 /** Only while the editor is open: the record a closed sheet left behind is not being edited. */
 const editingType = computed(() => (editorOpen.value ? (draft.value?.adapterType ?? null) : null))
@@ -663,7 +669,8 @@ function handleTestCurrent() {
       :description="t('settings.system.requests.indexers.editorDescription')"
       :dirty="isDirty"
       :busy="saving || removingPlugin !== null"
-      :removable="draft.id !== null && (editingPluginType === null || canInstallPlugins)"
+      :save-disabled="loginBusy"
+      :removable="!loginBusy && draft.id !== null && (editingPluginType === null || canInstallPlugins)"
       :remove-label="
         editingPluginType ? t('settings.system.requests.indexers.plugins.removeAction') : t('settings.system.requests.indexers.confirmDelete.confirm')
       "
@@ -828,6 +835,41 @@ function handleTestCurrent() {
               </div>
             </template>
           </SettingsField>
+          <div v-if="canManageAppSettings && currentAdapter?.supportsLogin" class="space-y-3 rounded-md border border-border p-3">
+            <p class="settings-label">{{ t('settings.system.requests.indexers.login.title') }}</p>
+            <p class="settings-hint">{{ t('settings.system.requests.indexers.login.hint') }}</p>
+            <SettingsField :label="t('settings.system.requests.indexers.login.username')" input-id="indexer-login-username" required>
+              <template #default="{ describedBy }">
+                <input
+                  id="indexer-login-username"
+                  v-model="loginUsername"
+                  v-bind="SECRET_INPUT_ATTRS"
+                  type="text"
+                  class="settings-control"
+                  autocomplete="off"
+                  :aria-describedby="describedBy"
+                />
+              </template>
+            </SettingsField>
+            <SettingsField :label="t('settings.system.requests.indexers.login.password')" input-id="indexer-login-password" required>
+              <template #default="{ describedBy }">
+                <input
+                  id="indexer-login-password"
+                  v-model="loginPassword"
+                  v-bind="SECRET_INPUT_ATTRS"
+                  type="text"
+                  class="settings-control input-secret"
+                  autocomplete="off"
+                  :aria-describedby="describedBy"
+                />
+              </template>
+            </SettingsField>
+            <p v-if="loginFailure" role="alert" class="text-sm text-destructive">{{ loginFailure }}</p>
+            <Button type="button" size="sm" variant="outline" :disabled="loginBusy" @click="handleLogin">
+              <Loader2 v-if="loginBusy" class="animate-spin" aria-hidden="true" />
+              {{ t('settings.system.requests.indexers.login.submit') }}
+            </Button>
+          </div>
         </SettingsSection>
 
         <SettingsSection :title="t('settings.system.requests.sections.search')">

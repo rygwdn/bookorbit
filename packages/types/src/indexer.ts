@@ -186,6 +186,8 @@ export interface IndexerAdapterDescriptor {
    * should, because a catalogue that answers an ISBN badly is worse than one that cannot.
    */
   supportsIsbnSearch: boolean;
+  /** Optional for descriptors from older servers and plugins without password exchange. */
+  supportsLogin?: boolean;
   defaultCategories: IndexerCategoryMap;
   defaultBaseUrl?: string;
   /** Only a plugin sends one; a built-in has a translated message keyed on its type. */
@@ -243,6 +245,14 @@ export const INDEXER_ERROR_CODES = [
   "INDEXER_SETTINGS_INVALID",
   /** The test ran and the source refused or could not be reached. Carries the adapter's reason. */
   "INDEXER_TEST_FAILED",
+  "INDEXER_LOGIN_UNAUTHORIZED",
+  "INDEXER_LOGIN_CHALLENGE",
+  "INDEXER_LOGIN_TWO_FACTOR_REQUIRED",
+  "INDEXER_LOGIN_THROTTLED",
+  "INDEXER_LOGIN_TIMEOUT",
+  "INDEXER_LOGIN_UNREACHABLE",
+  "INDEXER_LOGIN_FAILED",
+  "INDEXER_LOGIN_UNSUPPORTED",
   ...REQUEST_CREDENTIAL_ERROR_CODES,
 ] as const;
 export type IndexerErrorCode = (typeof INDEXER_ERROR_CODES)[number];
@@ -347,6 +357,14 @@ export interface CreateIndexerPayload {
 }
 
 export type UpdateIndexerPayload = Partial<CreateIndexerPayload>;
+
+/** Password is transient input to sign-in, never part of saved indexer settings. */
+export interface IndexerLoginPayload {
+  indexerId?: number;
+  configuration: Omit<CreateIndexerPayload, "credential">;
+  username: string;
+  password: string;
+}
 
 export interface IndexerTestResult {
   success: boolean;

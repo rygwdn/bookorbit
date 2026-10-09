@@ -12,6 +12,7 @@ import {
   Post,
   Put,
   Req,
+  Res,
 } from '@nestjs/common';
 import { AuditAction, AuditResource, Permission } from '@bookorbit/types';
 import type {
@@ -33,6 +34,8 @@ import { MAX_PLUGIN_BYTES, PluginInstallService } from './plugins/plugin-install
 import { PluginUpdateService } from './plugins/plugin-update.service';
 import { CreateIndexerDto, InstallPluginUpdateDto, UpdateIndexerDto, UpdatePluginAutomaticDto } from './dto/indexer.dto';
 import type { RequestUser } from '../../../common/types/request-user';
+import { IndexerLoginDto } from './dto/indexer-login.dto';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { MultipartRequest } from '../../../common/types/multipart-request';
 
 /**
@@ -161,6 +164,30 @@ export class IndexerController {
   async removePlugin(@CurrentUser() user: RequestUser, @Param('type') type: string): Promise<void> {
     assertSuperuser(user);
     await this.pluginInstaller.remove(type, user.email ?? `user:${user.id}`);
+  }
+
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  @Auditable({
+    action: AuditAction.RequestIndexerUpdate,
+    resource: AuditResource.RequestIndexer,
+    description: 'Signed in and stored an indexer session',
+  })
+  async login(@Body() dto: IndexerLoginDto, @Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) {
+    const controller = new AbortController();
+    const cancel = () => {
+      if (!reply.raw.writableEnded) controller.abort();
+    };
+    req.raw.once('aborted', cancel);
+    reply.raw.once('close', cancel);
+    try {
+      return await this.service.login(dto, AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]));
+    } finally {
+      dto.password = '';
+      if (req.body && typeof req.body === 'object' && 'password' in req.body) req.body.password = '';
+      req.raw.removeListener('aborted', cancel);
+      reply.raw.removeListener('close', cancel);
+    }
   }
 
   @Get(':id')

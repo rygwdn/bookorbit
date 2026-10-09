@@ -177,6 +177,7 @@ function describePlugin(adapter: PluginIndexerAdapter): IndexerAdapterDescriptor
     delivery: plugin.seedsBack ? 'torrent' : 'file',
     // The adapter's, not the plugin's: a plugin may leave the field off entirely.
     supportsIsbnSearch: adapter.supportsIsbnSearch,
+    ...(adapter.login ? { supportsLogin: true } : {}),
     defaultCategories: pluginCategories(plugin),
     ...(plugin.defaultBaseUrl ? { defaultBaseUrl: plugin.defaultBaseUrl } : {}),
     ...(plugin.baseUrlHint ? { baseUrlHint: plugin.baseUrlHint } : {}),
