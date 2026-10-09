@@ -1,3 +1,4 @@
+import type { PluginLoginInput } from '@bookorbit/plugin-api';
 import type {
   BookRequestMediaKind,
   IndexerSettingsField,
@@ -198,6 +199,7 @@ export interface IndexerAdapter {
   /** The signal carries the per-indexer timeout, so one slow tracker cannot hold up the merge. */
   search(query: ReleaseQuery, config: ResolvedIndexerConfig, signal: AbortSignal): Promise<ReleaseCandidate[]>;
   test(config: ResolvedIndexerConfig): Promise<IndexerTestResult>;
+  login?(input: PluginLoginInput, config: ResolvedIndexerConfig, signal: AbortSignal): Promise<string>;
   /** Private trackers need an authenticated .torrent fetch rather than a public magnet. */
   fetchTorrentFile?(release: ReleaseCandidate, config: ResolvedIndexerConfig): Promise<TorrentFetchResult>;
   /** Newznab download endpoint resolved to an NZB before its credential can reach the client. */

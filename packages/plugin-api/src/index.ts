@@ -212,6 +212,22 @@ export interface PluginRequestInit {
   redirect?: "follow" | "manual";
 }
 
+/** Transient sign-in input. Never saved in configuration or settings. */
+export interface PluginLoginInput {
+  username: string;
+  password: string;
+}
+
+export type PluginLoginFailure = "unauthorized" | "challenge" | "twoFactorRequired" | "throttled" | "timeout" | "unreachable" | "error";
+
+/** Sign-in cannot log or rotate a saved credential before its result is accepted. */
+export interface PluginLoginHost {
+  /** Restricted to the configured HTTPS origin, public addresses, manual redirects and a deadline. */
+  fetch(url: string, init?: PluginRequestInit): Promise<Response>;
+  /** The host preserves the failure code, not provider-supplied message text. */
+  fail(failure: PluginLoginFailure, message: string): Error;
+}
+
 /**
  * What a plugin module's default export must look like. Everything the settings form needs is
  * declared here, so a plugin-supplied source is indistinguishable from a built-in one to the
@@ -246,6 +262,8 @@ export interface IndexerPlugin {
 
   search(query: PluginReleaseQuery, config: PluginIndexerConfig, host: PluginHost, signal: AbortSignal): Promise<PluginReleaseCandidate[]>;
   test(config: PluginIndexerConfig, host: PluginHost): Promise<PluginTestResult>;
+  /** Explicit sign-in exchanges a transient password for a session. No persistent password or automatic relogin. */
+  login?(input: PluginLoginInput, config: PluginIndexerConfig, host: PluginLoginHost, signal: AbortSignal): Promise<string>;
   /** A source whose download link is credentialed and must be fetched with its own session. */
   fetchTorrentFile?(release: PluginReleaseCandidate, config: PluginIndexerConfig, host: PluginHost): Promise<Uint8Array>;
   /** A source that serves the file itself. Declare this or `fetchTorrentFile`, never both. */

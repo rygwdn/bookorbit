@@ -3957,6 +3957,24 @@
             "searchByIsbn": "Search by ISBN",
             "searchByIsbnBrief": "On by default. Turn it off if this source returns the wrong book for an exact ISBN, and it will be searched by title and author instead."
           },
+          "login": {
+            "title": "Sign in and store session",
+            "hint": "Signs in and saves this source with your current changes. Only the session is stored; your password is discarded.",
+            "username": "Username or email",
+            "password": "Password",
+            "submit": "Sign in",
+            "succeeded": "Signed in and session stored",
+            "errors": {
+              "unauthorized": "The sign-in details were not accepted.",
+              "challenge": "This account requires a sign-in challenge that BookOrbit cannot complete.",
+              "twoFactorRequired": "This account requires two-factor authentication that is not supported here.",
+              "throttled": "The provider is temporarily limiting sign-ins. Try again later.",
+              "timeout": "The provider did not respond in time.",
+              "unreachable": "The provider could not be reached.",
+              "unsupported": "Sign-in is not supported for this source.",
+              "failed": "Sign-in failed. Check the source details and try again."
+            }
+          },
           "color": {
             "label": "Color",
             "hint": "Marks this source on every release it returns, so you can tell where a result came from before reading its name. Delivery protocols keep their own colors, which is why those colors are not offered here.",

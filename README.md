@@ -179,6 +179,14 @@ Full documentation lives at **[bookorbit.app](https://bookorbit.app/what-is-book
 
 - **Local development**: architecture, first-time setup, running, testing and conventions in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 - **Contributing**: branch naming, test expectations, the PR checklist and commit format in [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
+Indexer plugins may offer **Sign in and store session** in their source editor. This action saves
+the current source configuration after a successful password-to-session exchange. Only the session
+is encrypted and stored; the password is discarded, and failed sign-in leaves the existing session
+unchanged. Manual Session ID setup remains available. Sign-in requires `ManageAppSettings` and a
+configured `BOOK_REQUEST_ENCRYPTION_KEY`. Use HTTPS when accessing BookOrbit to submit passwords.
+The optional API v1 `login` method receives a restricted host without logging or credential-write
+capabilities; outbound traffic is limited to the configured HTTPS origin with no redirects.
+
 
 ## Unsupported Storage Configurations
 
