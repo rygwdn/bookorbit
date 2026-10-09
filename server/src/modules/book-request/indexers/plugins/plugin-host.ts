@@ -3,6 +3,8 @@ import type {
   IndexerPlugin,
   PluginHost,
   PluginIndexerConfig,
+  PluginLoginInput,
+  PluginLoginHost,
   PluginReleaseCandidate,
   PluginReleaseQuery,
   PluginRequestInit,
@@ -19,6 +21,7 @@ import { ensureSafeUrl, RemoteHostResolutionException } from '../../../../common
 import { buildSearchText } from '../search-text';
 import { MAX_TORRENT_FILE_BYTES } from '../../fulfillment/torrent.utils';
 import type { IndexerCredentialStore } from '../indexer-credential-store';
+import { IndexerLoginException } from '../indexer-login';
 import {
   IndexerSearchException,
   type IndexerAdapter,
@@ -109,6 +112,50 @@ export class PluginIndexerAdapter implements IndexerAdapter {
 
   async test(config: ResolvedIndexerConfig) {
     return this.guard(config, () => this.plugin.test(toPluginConfig(config), this.host(config)));
+  }
+
+  get login() {
+    if (typeof this.plugin.login !== 'function') return undefined;
+    return async (input: PluginLoginInput, config: ResolvedIndexerConfig, signal: AbortSignal): Promise<string> => {
+      const lifetime = new AbortController();
+      const deadline = AbortSignal.any([signal, lifetime.signal]);
+      try {
+        const base = new URL(config.baseUrl);
+        if (base.protocol !== 'https:' || base.username || base.password || base.port || base.pathname !== '/' || base.search || base.hash) {
+          throw new IndexerLoginException('error');
+        }
+        signal.throwIfAborted();
+        const host: PluginLoginHost = {
+          fetch: async (rawUrl, init) => {
+            const url = new URL(rawUrl);
+            if (url.origin !== base.origin || url.username || url.password || url.hash) throw new IndexerLoginException('error');
+            const response = await this.fetchForPlugin(
+              { ...config, allowPrivateAddress: false },
+              url.href,
+              { ...init, redirect: 'manual' },
+              deadline,
+            );
+            return boundedResponse(response, 2 * 1024 * 1024);
+          },
+          fail: (failure) => new IndexerLoginException(failure),
+        };
+        const credential = await withDeadline(this.plugin.login!(input, toPluginConfig({ ...config, credential: null }), host, deadline), deadline);
+        signal.throwIfAborted();
+        if (typeof credential !== 'string' || !credential.trim() || credential.length > 1024 || credential === input.password) {
+          throw new IndexerLoginException('error');
+        }
+        return credential;
+      } catch (error) {
+        if (error instanceof IndexerLoginException) throw error;
+        if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+          throw new IndexerLoginException('timeout');
+        }
+        if (error instanceof RemoteHostResolutionException) throw new IndexerLoginException('unreachable');
+        throw new IndexerLoginException('error');
+      } finally {
+        lifetime.abort();
+      }
+    };
   }
 
   get fetchTorrentFile() {

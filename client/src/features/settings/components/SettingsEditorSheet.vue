@@ -26,6 +26,8 @@ const props = defineProps<{
   /** Blocks a close that would throw typed changes away. */
   dirty?: boolean
   busy?: boolean
+  /** Prevents a competing save while allowing an abortable operation to be dismissed. */
+  saveDisabled?: boolean
   /** Hidden while creating, because there is nothing yet to remove. */
   removable?: boolean
   removeLabel?: string
@@ -182,7 +184,7 @@ function cancelPending() {
             <!-- Wraps rather than crushes: a narrow sheet cannot hold four controls on one line. -->
             <div v-else class="flex flex-wrap items-center gap-3">
               <div class="flex items-center gap-2">
-                <Button size="sm" :disabled="busy" @click="handleSave">
+                <Button size="sm" :disabled="busy || saveDisabled" @click="handleSave">
                   <Loader2 v-if="busy" class="animate-spin" aria-hidden="true" />
                   {{ t('common.save') }}
                 </Button>

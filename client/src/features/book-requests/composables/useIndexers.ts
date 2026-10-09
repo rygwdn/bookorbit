@@ -7,6 +7,7 @@ import type {
   IndexerErrorCode,
   IndexerItem,
   IndexerListResult,
+  IndexerLoginPayload,
   IndexerPluginFailure,
   IndexerTestResult,
   PluginInspection,
@@ -100,6 +101,29 @@ export function useIndexers() {
   /** Undefined for a row whose adapter this build no longer provides, which the panel says. */
   function adapterFor(type: string): IndexerAdapterDescriptor | undefined {
     return adapters.value.find((adapter) => adapter.type === type)
+  }
+
+  async function login(payload: IndexerLoginPayload, signal: AbortSignal): Promise<{ indexer: IndexerItem | null; errorCode: string | null }> {
+    try {
+      const res = await api(`${BASE_PATH}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal,
+      })
+      if (!res.ok) {
+        const failure = await toFailure(res)
+        return { indexer: null, errorCode: failure.errorCode }
+      }
+      const indexer = (await res.json()) as IndexerItem
+      if (signal.aborted) return { indexer: null, errorCode: null }
+      const current = indexers.value.findIndex((row) => row.id === indexer.id)
+      if (current === -1) indexers.value = [...indexers.value, indexer]
+      else indexers.value = indexers.value.map((row, index) => (index === current ? indexer : row))
+      return { indexer, errorCode: null }
+    } catch {
+      return { indexer: null, errorCode: null }
+    }
   }
 
   async function save(id: number | null, payload: CreateIndexerPayload | UpdateIndexerPayload): Promise<IndexerFailure | null> {
@@ -249,6 +273,7 @@ export function useIndexers() {
     saving,
     loadFailed,
     fetchIndexers,
+    login,
     save,
     remove,
     test,

@@ -1,4 +1,4 @@
-import { computed, nextTick, reactive, ref, type Ref } from 'vue'
+import { computed, nextTick, onScopeDispose, reactive, ref, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { BOOK_REQUEST_MEDIA_KINDS, INDEXER_ADAPTER_TYPES, MAX_INDEXER_SEED_TIME_MINUTES, pickUnusedIndexerColor } from '@bookorbit/types'
@@ -13,6 +13,7 @@ import type {
   IndexerSettingsField,
   NetworkProfile,
   UpdateIndexerPayload,
+  IndexerLoginPayload,
 } from '@bookorbit/types'
 
 import type { IndexerFailure } from '@/features/book-requests/composables/useIndexers'
@@ -90,6 +91,7 @@ export interface IndexerDraftOptions {
   /** The adapter's display name, which prefers a translated key over untranslated plugin English. */
   adapterLabel: (adapter: IndexerAdapterDescriptor) => string
   save: (id: number | null, payload: CreateIndexerPayload | UpdateIndexerPayload) => Promise<IndexerFailure | null>
+  login: (payload: IndexerLoginPayload, signal: AbortSignal) => Promise<{ indexer: IndexerItem | null; errorCode: string | null }>
 }
 
 /**
@@ -101,11 +103,17 @@ export interface IndexerDraftOptions {
  */
 export function useIndexerDraft(options: IndexerDraftOptions) {
   const { t } = useI18n()
-  const { indexers, adapterFor, adapterLabel, save } = options
+  const { indexers, adapterFor, adapterLabel, save, login } = options
 
   const { draft, open: editorOpen, isDirty, start, close } = useSettingsDraft<IndexerDraft>()
   const credentialVisible = ref(false)
   const fieldErrors = reactive<Partial<Record<FieldKey, string>>>({})
+  const loginUsername = ref('')
+  const loginPassword = ref('')
+  const loginBusy = ref(false)
+  const loginFailure = ref<string | null>(null)
+  let loginController: AbortController | null = null
+  let loginAction = 0
   const currentAdapter = computed(() => (draft.value ? adapterFor(draft.value.adapterType) : undefined))
   const editingIndexer = computed(() => (draft.value?.id === null ? null : (indexers.value.find((row) => row.id === draft.value?.id) ?? null)))
 
@@ -170,7 +178,18 @@ export function useIndexerDraft(options: IndexerDraftOptions) {
     }
   }
 
+  function resetLogin() {
+    loginAction += 1
+    loginController?.abort()
+    loginController = null
+    loginBusy.value = false
+    loginUsername.value = ''
+    loginPassword.value = ''
+    loginFailure.value = null
+  }
+
   function openDraft(next: IndexerDraft) {
+    resetLogin()
     start(next)
     credentialVisible.value = false
     clearFieldErrors()
@@ -225,9 +244,75 @@ export function useIndexerDraft(options: IndexerDraftOptions) {
   }
 
   function cancelEdit() {
+    resetLogin()
     close()
     clearFieldErrors()
   }
+  const LOGIN_FAILED_KEY = 'settings.system.requests.indexers.login.errors.failed'
+  const LOGIN_ERROR_KEYS: Record<string, string> = {
+    INDEXER_LOGIN_UNAUTHORIZED: 'settings.system.requests.indexers.login.errors.unauthorized',
+    INDEXER_LOGIN_CHALLENGE: 'settings.system.requests.indexers.login.errors.challenge',
+    INDEXER_LOGIN_TWO_FACTOR_REQUIRED: 'settings.system.requests.indexers.login.errors.twoFactorRequired',
+    INDEXER_LOGIN_THROTTLED: 'settings.system.requests.indexers.login.errors.throttled',
+    INDEXER_LOGIN_TIMEOUT: 'settings.system.requests.indexers.login.errors.timeout',
+    INDEXER_LOGIN_UNREACHABLE: 'settings.system.requests.indexers.login.errors.unreachable',
+    INDEXER_LOGIN_UNSUPPORTED: 'settings.system.requests.indexers.login.errors.unsupported',
+    INDEXER_LOGIN_FAILED: LOGIN_FAILED_KEY,
+  }
+
+  async function handleLogin() {
+    const current = draft.value
+    if (!current || !currentAdapter.value?.supportsLogin || loginBusy.value) return
+    clearFieldErrors()
+    if (!current.name.trim()) fieldErrors.name = t('settings.system.requests.indexers.errors.nameRequired')
+    if (!current.baseUrl.trim()) fieldErrors.baseUrl = t('settings.system.requests.indexers.errors.urlRequired')
+    if (currentAdapter.value.seedsBack) validateSeedDraft(current)
+    if (Object.keys(fieldErrors).length > 0) {
+      await focusFirstInvalidField()
+      return
+    }
+
+    const action = ++loginAction
+    const controller = new AbortController()
+    loginController = controller
+    loginBusy.value = true
+    loginFailure.value = null
+    const username = loginUsername.value
+    const password = loginPassword.value
+    loginUsername.value = ''
+    loginPassword.value = ''
+    await nextTick()
+    if (action !== loginAction || controller.signal.aborted) return
+    const configuration = toPayload(current)
+    delete configuration.credential
+
+    try {
+      const result = await login(
+        {
+          ...(current.id === null ? {} : { indexerId: current.id }),
+          configuration,
+          username,
+          password,
+        },
+        controller.signal,
+      )
+      if (action !== loginAction || controller.signal.aborted) return
+      if (result.indexer === null) {
+        const code = result.errorCode ?? 'INDEXER_LOGIN_FAILED'
+        loginFailure.value = t(LOGIN_ERROR_KEYS[code] ?? SAVE_ERROR_KEYS[code] ?? LOGIN_FAILED_KEY)
+        return
+      }
+      toast.success(t('settings.system.requests.indexers.login.succeeded'))
+      cancelEdit()
+    } finally {
+      if (action === loginAction) {
+        loginController = null
+        loginBusy.value = false
+      }
+    }
+  }
+
+  onScopeDispose(resetLogin)
 
   function clearFieldErrors() {
     for (const key of Object.keys(fieldErrors) as FieldKey[]) delete fieldErrors[key]
@@ -485,7 +570,7 @@ export function useIndexerDraft(options: IndexerDraftOptions) {
 
   async function handleSave() {
     const current = draft.value
-    if (!current) return
+    if (!current || loginBusy.value) return
 
     clearFieldErrors()
     if (!current.name.trim()) fieldErrors.name = t('settings.system.requests.indexers.errors.nameRequired')
@@ -555,6 +640,11 @@ export function useIndexerDraft(options: IndexerDraftOptions) {
     sheetTitle,
     canScopeMediaKinds,
     describeFailure,
+    loginUsername,
+    loginPassword,
+    loginBusy,
+    loginFailure,
+    handleLogin,
     startCreate,
     startCreateFor,
     handleCreateTypeChange,

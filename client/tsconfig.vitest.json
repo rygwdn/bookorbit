@@ -8,9 +8,8 @@
 
   "compilerOptions": {
     // Vitest runs in a different environment than the application code.
-    // Adjust lib and types accordingly. ES2022 matches the app's target so
-    // newer built-ins (e.g. Array.prototype.at) are available in tests.
-    "lib": ["ES2022"],
+    // Tests run on Node >= 24; this does not change the browser application's target.
+    "lib": ["ES2024"],
     "types": ["node", "jsdom"],
 
     // noUncheckedIndexedAccess produces false positives in tests where the
