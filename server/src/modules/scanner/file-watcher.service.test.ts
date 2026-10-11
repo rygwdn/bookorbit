@@ -631,19 +631,16 @@ describe('pauseWatcher() against a real filesystem', () => {
     const { service } = makeService();
     const processSpy = vi.spyOn(service as any, 'process').mockResolvedValue(undefined);
 
-    const settle = () => new Promise((resolve) => setTimeout(resolve, WATCHER_DEBOUNCE_MS * 4));
-
     try {
       await service.startWatcher(1, [dir]);
 
       service.pauseWatcher(1);
       await writeFile(join(dir, 'while-paused.epub'), 'x');
-      await settle();
       expect(processSpy).not.toHaveBeenCalled();
 
       service.resumeWatcher(1);
       await writeFile(join(dir, 'after-resume.epub'), 'x');
-      await settle();
+      await vi.waitFor(() => expect(processSpy).toHaveBeenCalledWith('create', join(dir, 'after-resume.epub'), 1), { timeout: 10000 });
 
       const seen = processSpy.mock.calls.map((call) => call[1]);
       expect(seen).toContain(join(dir, 'after-resume.epub'));
