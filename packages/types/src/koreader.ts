@@ -583,6 +583,81 @@ export interface KoreaderCatalogManifestPage {
   // so no transfer work is repeated.
   restartRequired: boolean;
 }
+export interface KoreaderCatalogSnapshotFile {
+  id: number;
+  format: string;
+  sizeBytes: number | null;
+  contentVersion: string;
+}
+
+export interface KoreaderCatalogSnapshotProgress {
+  fileId: number;
+  percentage: number;
+  koreaderProgress: string | null;
+  updatedAt: string;
+}
+
+export interface KoreaderCatalogSnapshotBook {
+  id: number;
+  title: string;
+  subtitle: string | null;
+  description: string | null;
+  authors: string[];
+  genres: string[];
+  tags: string[];
+  seriesName: string | null;
+  seriesIndex: string | null;
+  language: string | null;
+  publisher: string | null;
+  publishedDate: string | null;
+  publishedYear: number | null;
+  isbn10: string | null;
+  isbn13: string | null;
+  rating: number | null;
+  pageCount: number | null;
+  metadataRevision: string | null;
+  addedAt: string;
+  updatedAt: string;
+  libraryId: number;
+  libraryName: string;
+  files: KoreaderCatalogSnapshotFile[];
+  progress: KoreaderCatalogSnapshotProgress | null;
+  progressPercentage: number | null;
+  lastReadAt: string | null;
+  readStatus: string | null;
+  userRating: number | null;
+  hasCover: boolean;
+  coverRevision: string | null;
+  memberships: {
+    libraryIds: number[];
+    collectionIds: number[];
+    smartScopeIds: number[];
+  };
+}
+
+export interface KoreaderCatalogSnapshotSource {
+  id: number;
+  name: string;
+  bookCount: number;
+}
+
+export interface KoreaderCatalogSnapshotPage {
+  version: 1;
+  generation: string;
+  etag: string;
+  total: number;
+  books: KoreaderCatalogSnapshotBook[];
+  sources: {
+    libraries: KoreaderCatalogSnapshotSource[];
+    collections: KoreaderCatalogSnapshotSource[];
+    smartScopes: KoreaderCatalogSnapshotSource[];
+  };
+  shelves: {
+    continueReading: number[];
+    discover: number[];
+  };
+  nextCursor: string | null;
+}
 
 export type KoreaderPluginCapability =
   | "catalogBulkManifest"

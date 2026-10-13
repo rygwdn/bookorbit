@@ -95,3 +95,19 @@ New bookmarks retain their source file. Mapping into a structurally different si
 ### EPUB delivery defaults
 
 With plugin 1.7.0 and a supported server, set the default in BookOrbit web Settings > KOReader > Sync Settings > KOReader EPUB delivery. Devices can override the credential default. In KOReader, BookOrbit > Download > Settings > Read-aloud EPUB delivery edits the same server device setting. The single-download dialog offers Use BookOrbit default and an override to the other EPUB variant. Existing local preferences are imported once when the server has no configured default, and interrupted transfers keep their captured variant.
+
+## Catalog snapshot API
+
+The server also exposes `GET /api/v1/koreader/plugin/catalog/snapshot` for consumers that need a consistent, paginated catalog export. It uses the existing KOReader username/password credentials and the same authorization rules as the other plugin endpoints; library access and source visibility are checked for every request.
+
+Query parameters:
+
+- `scope=all|selected` (default `all`). In `selected` mode, `libraryIds`, `collectionIds`, and `smartScopeIds` are comma-separated positive IDs. Selected source families are unioned; selecting none returns an empty catalog.
+- `formats` is a comma-separated union of server-recognized formats. A book is included when any of its content files matches; the format filter intersects the selected-source union.
+- `size` is 1–200 (default 200). `cursor` is an opaque continuation token returned by the previous page.
+
+The version-1 JSON response contains `version`, `generation`, `etag`, `total`, `books`, `sources`, `shelves`, and `nextCursor`. Each canonical book record includes its metadata, content files and sizes, user-specific progress/read status, date and cover revision, plus `memberships.libraryIds`, `memberships.collectionIds`, and `memberships.smartScopeIds`. Duplicate source membership does not duplicate a book. `sources` contains visible source records (`id`, `name`, and the count in the filtered catalog union); `shelves.continueReading` and `shelves.discover` contain book IDs from that same union only. `nextCursor` is `null` at the end.
+
+Pages in one generation are a frozen snapshot. The opaque cursor is bound to the authenticated user, normalized filters, and page size; it cannot be reused with another user or query. Snapshots are cached for up to 15 minutes and may be evicted earlier. If a cursor expires, is evicted, or its source access is revoked, restart from the first page. Malformed filters, unknown formats, invalid IDs, and stale or mismatched cursors return `400`; selecting a source the user cannot access returns `403`. A matching `If-None-Match` on an initial request returns `304` with no response body. The ETag covers the catalog records, memberships, progress, cover revisions, and effective source selection, so unchanged data has a stable validator and relevant changes produce a new one.
+
+The published `bo-2` firmware still uses the existing catalog/listing calls and does not yet consume this snapshot endpoint; its behavior is unchanged.
