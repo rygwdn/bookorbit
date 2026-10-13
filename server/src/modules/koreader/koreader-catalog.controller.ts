@@ -1,4 +1,19 @@
-import { Body, Controller, Get, Header, Headers, Param, ParseEnumPipe, ParseIntPipe, Put, Query, Res, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  Headers,
+  InternalServerErrorException,
+  Optional,
+  Param,
+  ParseEnumPipe,
+  ParseIntPipe,
+  Put,
+  Query,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 
 import { KOREADER_DASHBOARD_SECTION_TYPE } from '@bookorbit/types';
@@ -18,13 +33,18 @@ import {
   KoreaderCatalogSectionQueryDto,
   KoreaderCatalogSetRatingDto,
   KoreaderCatalogSetReadStatusDto,
+  KoreaderCatalogSnapshotQueryDto,
 } from './dto/koreader-catalog-query.dto';
+import { KoreaderCatalogSnapshotService } from './koreader-catalog-snapshot.service';
 
 @Public()
 @UseGuards(KoreaderAuthGuard)
 @Controller('koreader/plugin/catalog')
 export class KoreaderCatalogController {
-  constructor(private readonly catalogService: KoreaderCatalogService) {}
+  constructor(
+    private readonly catalogService: KoreaderCatalogService,
+    @Optional() private readonly snapshotService?: KoreaderCatalogSnapshotService,
+  ) {}
 
   @Get('root')
   @Header('Cache-Control', 'private, max-age=30')
@@ -59,6 +79,23 @@ export class KoreaderCatalogController {
   @Header('Cache-Control', 'private, max-age=30')
   sections(@CurrentUser() user: RequestUser, @Param('section') section: string, @Query() query: KoreaderCatalogSectionQueryDto) {
     return this.catalogService.getSectionEntries(user, section, query);
+  }
+
+  @Get('snapshot')
+  async snapshot(
+    @CurrentUser() user: RequestUser,
+    @Query() query: KoreaderCatalogSnapshotQueryDto,
+    @Headers('if-none-match') ifNoneMatch: string | undefined,
+    @Res() reply: FastifyReply,
+  ) {
+    if (!this.snapshotService) throw new InternalServerErrorException();
+    const result = await this.snapshotService.getPage(user, query, ifNoneMatch);
+    reply.header('Cache-Control', 'private, no-cache').header('ETag', result.etag);
+    if (result.notModified) {
+      reply.status(304).send();
+      return;
+    }
+    reply.send(result.page);
   }
 
   @Get('books')

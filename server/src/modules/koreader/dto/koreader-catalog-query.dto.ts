@@ -1,7 +1,15 @@
 import { Transform, Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 
-import { READ_ALOUD_DELIVERY_VARIANTS, type ReadAloudDeliveryVariant, KOREADER_DASHBOARD_SECTION_TYPES } from '@bookorbit/types';
+import {
+  BOOK_FORMATS,
+  COMIC_FORMAT_LIST,
+  EBOOK_FORMAT_LIST,
+  UPLOAD_SUPPORTED_FORMATS,
+  READ_ALOUD_DELIVERY_VARIANTS,
+  type ReadAloudDeliveryVariant,
+  KOREADER_DASHBOARD_SECTION_TYPES,
+} from '@bookorbit/types';
 import type {
   KoreaderCatalogReadStatusFilter,
   KoreaderCatalogSettableReadStatus,
@@ -279,4 +287,68 @@ export class KoreaderCatalogDownloadQueryDto {
   @IsString()
   @MaxLength(2048)
   selection?: string;
+}
+
+const SNAPSHOT_FORMATS = [...BOOK_FORMATS, ...COMIC_FORMAT_LIST, ...EBOOK_FORMAT_LIST, ...UPLOAD_SUPPORTED_FORMATS, 'xtc', 'xtch', 'txt', 'md'];
+
+function parseStrictList(value: unknown): string[] | undefined {
+  if (value === undefined || value === '') return undefined;
+  const items: unknown[] = Array.isArray(value) ? value : [value];
+  const values = items.flatMap((item) => (typeof item === 'string' ? item.split(',') : ['']));
+  return values.map((item) => item.trim());
+}
+
+function parseStrictIdList(value: unknown): number[] | undefined {
+  const values = parseStrictList(value);
+  if (values === undefined) return undefined;
+  return values.map((item) => (/^[1-9]\d*$/.test(item) && Number.isSafeInteger(Number(item)) ? Number(item) : Number.NaN));
+}
+
+export class KoreaderCatalogSnapshotQueryDto {
+  @IsOptional()
+  @IsIn(['all', 'selected'])
+  scope: 'all' | 'selected' = 'all';
+
+  @IsOptional()
+  @Transform(({ value }) => parseStrictList(value)?.map((format) => format.toLowerCase()))
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsIn(SNAPSHOT_FORMATS, { each: true })
+  formats?: string[];
+
+  @IsOptional()
+  @Transform(({ value }) => parseStrictIdList(value))
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  libraryIds?: number[];
+
+  @IsOptional()
+  @Transform(({ value }) => parseStrictIdList(value))
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  collectionIds?: number[];
+
+  @IsOptional()
+  @Transform(({ value }) => parseStrictIdList(value))
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  smartScopeIds?: number[];
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  size = 200;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  cursor?: string;
 }

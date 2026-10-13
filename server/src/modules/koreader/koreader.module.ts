@@ -22,6 +22,7 @@ import { KoreaderBookmarkExchangeService } from './koreader-bookmark-exchange.se
 import { KoreaderBookmarkRepository } from './koreader-bookmark.repository';
 import { KoreaderCatalogController } from './koreader-catalog.controller';
 import { KoreaderCatalogService } from './koreader-catalog.service';
+import { KoreaderCatalogSnapshotService } from './koreader-catalog-snapshot.service';
 import { KoreaderPackageService } from './koreader-package.service';
 import { KoreaderChapterExtractorService } from './koreader-chapter-extractor.service';
 import { KoreaderChapterService } from './koreader-chapter.service';
@@ -65,6 +66,7 @@ import { KoreaderSyncEstimateCleanupService } from './koreader-sync-estimate-cle
     KoreaderRepository,
     KoreaderAuthGuard,
     KoreaderCatalogService,
+    KoreaderCatalogSnapshotService,
     KoreaderPackageService,
     KoreaderChapterService,
     KoreaderChapterExtractorService,

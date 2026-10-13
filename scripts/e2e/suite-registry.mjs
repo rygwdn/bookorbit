@@ -16,6 +16,27 @@ const SHARED_AUTH_TYPE_PATHS = Object.freeze(["packages/types/src/auth.ts", "pac
 const SHARED_TYPES_PATHS = Object.freeze(["packages/types/src/**"]);
 
 export const E2E_SUITES = Object.freeze({
+  "koreader-catalog-snapshot": {
+    id: "koreader-catalog-snapshot",
+    name: "KOReader Catalog Snapshot",
+    timeout: 45,
+    lane: "full",
+    description: "Permission-aware frozen catalog paging, source unions, validators and cursor isolation",
+    vitestTarget: "test/koreader-catalog-snapshot.e2e-spec.ts",
+    junitOutput: `${TEST_RESULTS_DIR}/koreader-catalog-snapshot-e2e-junit.xml`,
+    prepareDedicatedDatabase: true,
+    useDedicatedDatabase: true,
+    changedPaths: [
+      "server/src/modules/koreader/**",
+      "server/src/modules/opds/**",
+      "server/src/modules/smart-scope/**",
+      "server/src/modules/collection/**",
+      "server/test/koreader-catalog-snapshot.e2e-spec.ts",
+      "server/test/e2e/app-harness.ts",
+      ...SHARED_TYPES_PATHS,
+      ...SHARED_DB_AND_HELPER_PATHS,
+    ],
+  },
   "read-aloud-delivery": {
     id: "read-aloud-delivery",
     name: "Read-aloud Delivery",
