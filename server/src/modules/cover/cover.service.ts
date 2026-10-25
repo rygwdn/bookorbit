@@ -1,3 +1,4 @@
+import { cacheDeviceCover } from '../../common/device-cover';
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CoverSearchResult } from '@bookorbit/types';
@@ -180,6 +181,7 @@ export class CoverService {
       const bytes = await readFile(extractedPath);
       const thumb = await generateThumbnail(bytes);
       await writeFile(bookThumbnailPath(this.appDataPath, bookId), thumb);
+      await cacheDeviceCover(this.appDataPath, bookId, bytes);
       await this.setCoverSource(bookId, 'extracted');
       this.fileWriteService.scheduleWrite(bookId, 'auto', user.id);
       this.logger.log(
@@ -248,6 +250,7 @@ export class CoverService {
     try {
       coverBytes = await normalizeProgressiveJpeg(buffer);
       thumb = await generateThumbnail(coverBytes);
+      await cacheDeviceCover(this.appDataPath, bookId, coverBytes);
     } catch {
       throw new BadRequestException('Invalid image file');
     }

@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+import { deviceCoverFromPath } from '../../common/device-cover';
 import {
   BadRequestException,
   Controller,
@@ -204,6 +206,32 @@ export class OpdsController {
   searchDescription(@OpdsUser() _user: OpdsRequestUser, @Res() reply: FastifyReply) {
     const xml = this.opdsService.generateOpenSearchDescription();
     reply.type(`${OPDS_MIME_SEARCH}; charset=utf-8`).send(xml);
+  }
+
+  @Get(':bookId/device-cover')
+  async deviceCover(
+    @Param('bookId', ParseIntPipe) bookId: number,
+    @OpdsUser() user: OpdsRequestUser,
+    @Res() reply: FastifyReply,
+    @Headers('if-none-match') previous?: string,
+    @Query('profile') profile = 'witchhunt',
+  ) {
+    if (profile !== 'witchhunt') throw new BadRequestException('Unknown device cover profile');
+    await this.opdsBookService.validateBookAccess(bookId, user.userId, user.isSuperuser, user.contentFilters);
+    const dir = bookCoverDirPath(this.appDataPath, bookId);
+    let sourcePath: string;
+    try {
+      const cover = findPreferredBookCoverFileName(await readdir(dir));
+      if (!cover) throw new NotFoundException('No cover');
+      sourcePath = join(dir, cover);
+    } catch {
+      throw new NotFoundException('No cover');
+    }
+    const bytes = await deviceCoverFromPath(this.appDataPath, bookId, sourcePath);
+    const etag = `"${createHash('sha256').update(bytes).digest('hex')}"`;
+    reply.header('Cache-Control', 'private, no-cache').header('Vary', 'Authorization').header('ETag', etag);
+    if (etag === previous) return reply.status(304).send();
+    return reply.type('image/jpeg').send(bytes);
   }
 
   @Get(':bookId/cover')

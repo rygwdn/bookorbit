@@ -6,11 +6,13 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { Permission } from '@bookorbit/types';
 import type { ContentFilterRules } from '@bookorbit/types';
+import type { RequestUser } from '../../common/types/request-user';
 import { PermissionService } from '../../common/services/permission.service';
 import { OpdsUserService } from './opds-user.service';
 import { UserService } from '../user/user.service';
 
 export interface OpdsRequestUser {
+  account?: RequestUser;
   opdsUserId: number;
   userId: number;
   username: string;
@@ -80,6 +82,7 @@ export class OpdsAuthGuard implements CanActivate {
       if (!this.permissionService.userHas(fullUser, Permission.OpdsAccess)) throw new ForbiddenException('OPDS access revoked');
 
       (request as unknown as Record<string, unknown>).opdsUser = {
+        account: fullUser,
         opdsUserId: 0,
         userId: fullUser.id,
         username: fullUser.username,
@@ -130,6 +133,7 @@ export class OpdsAuthGuard implements CanActivate {
     const secret = this.config.get<string>('auth.jwtSecret')!;
 
     (request as unknown as Record<string, unknown>).opdsUser = {
+      account: fullUser,
       opdsUserId: result.opdsUser.id,
       userId: result.parentUser.id,
       username: result.opdsUser.username,

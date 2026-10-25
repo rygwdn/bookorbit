@@ -33,6 +33,7 @@ const helpOpen = ref(true)
 const isMobile = useMediaQuery('(max-width: 767px)')
 
 const opdsUrl = computed(() => `${window.location.origin}/api/v1/opds`)
+const opds2Url = computed(() => `${opdsUrl.value}/v2`)
 
 const sortOrderOptions = computed<{ label: string; value: OpdsSortOrder }[]>(() => [
   { label: t('settings.reader.opds.sortRecent'), value: 'recent' },
@@ -86,7 +87,15 @@ async function toggleOpds() {
 }
 
 async function copyUrl() {
-  const copied = await copyToClipboard(opdsUrl.value)
+  await copyEndpoint(opdsUrl.value)
+}
+
+async function copyOpds2Url() {
+  await copyEndpoint(opds2Url.value)
+}
+
+async function copyEndpoint(url: string) {
+  const copied = await copyToClipboard(url)
   if (copied) {
     toast.success(t('settings.reader.opds.urlCopied'))
   } else {
@@ -250,8 +259,28 @@ function cancelDelete() {
       <div class="settings-card">
         <div class="flex flex-col md:flex-row md:items-center gap-2 px-4 py-3.5 md:px-5 md:py-4 bg-card">
           <Rss :size="14" class="text-muted-foreground shrink-0" />
-          <input :value="opdsUrl" readonly class="flex-1 text-sm bg-transparent text-foreground outline-none select-all min-w-0 truncate" />
+          <span class="text-xs text-muted-foreground shrink-0">OPDS 1.2</span>
+          <input
+            :value="opdsUrl"
+            aria-label="OPDS 1.2"
+            readonly
+            class="flex-1 text-sm bg-transparent text-foreground outline-none select-all min-w-0 truncate"
+          />
           <Button variant="outline" size="sm" class="w-full md:w-auto shrink-0" @click="copyUrl">
+            <Copy :size="12" />
+            {{ t('settings.reader.opds.copy') }}
+          </Button>
+        </div>
+        <div class="flex flex-col md:flex-row md:items-center gap-2 px-4 py-3.5 md:px-5 md:py-4 bg-card border-t border-border">
+          <Rss :size="14" class="text-muted-foreground shrink-0" />
+          <span class="text-xs text-muted-foreground shrink-0">OPDS 2.0</span>
+          <input
+            :value="opds2Url"
+            aria-label="OPDS 2.0"
+            readonly
+            class="flex-1 text-sm bg-transparent text-foreground outline-none select-all min-w-0 truncate"
+          />
+          <Button variant="outline" size="sm" class="w-full md:w-auto shrink-0" @click="copyOpds2Url">
             <Copy :size="12" />
             {{ t('settings.reader.opds.copy') }}
           </Button>

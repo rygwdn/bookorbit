@@ -1,3 +1,7 @@
+import { createHash } from 'crypto';
+import { isDeepStrictEqual } from 'util';
+import { ConflictException } from '@nestjs/common';
+import type { OpdsReadingStatsBatch } from '@bookorbit/types';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, lt, lte, max, min, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -51,6 +55,81 @@ export interface InsertManualSessionParams {
 @Injectable()
 export class ReadingSessionRepository {
   constructor(@Inject(DB) private readonly db: Db) {}
+
+  async findOpdsFile(bookId: number, fileId?: number) {
+    const [file] = await this.db
+      .select({ id: bookFiles.id, bookId: books.id, libraryId: books.libraryId })
+      .from(bookFiles)
+      .innerJoin(books, eq(bookFiles.bookId, books.id))
+      .where(
+        and(
+          eq(books.id, bookId),
+          eq(books.status, 'present'),
+          eq(bookFiles.role, 'content'),
+          fileId !== undefined ? eq(bookFiles.id, fileId) : eq(bookFiles.id, books.primaryFileId),
+        ),
+      )
+      .limit(1);
+    return file ?? null;
+  }
+
+  async saveOpdsBatch(userId: number, file: { id: number; bookId: number; libraryId: number }, batch: OpdsReadingStatsBatch, timeZone: string) {
+    const rows = batch.sessions
+      .map((session) => ({
+        userId,
+        bookFileId: file.id,
+        bookId: file.bookId,
+        sessionId: createHash('sha256').update(batch.device.id).update('\0').update(session.id).digest('hex'),
+        source: 'opds' as const,
+        startedAt: new Date(session.started),
+        endedAt: new Date(session.ended),
+        durationSeconds: session.activeSeconds,
+        progressDelta:
+          session.startProgression != null && session.endProgression != null ? (session.endProgression - session.startProgression) * 100 : null,
+        endProgress: session.endProgression != null ? session.endProgression * 100 : null,
+        externalStats: { device: batch.device, session },
+      }))
+      .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+    return this.db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(readingSessions)
+        .values(rows)
+        .onConflictDoNothing({ target: [readingSessions.userId, readingSessions.sessionId] })
+        .returning({
+          sessionId: readingSessions.sessionId,
+          externalStats: readingSessions.externalStats,
+          startedAt: readingSessions.startedAt,
+          endedAt: readingSessions.endedAt,
+          durationSeconds: readingSessions.durationSeconds,
+          progressDelta: readingSessions.progressDelta,
+          endProgress: readingSessions.endProgress,
+        });
+      const stored = await tx
+        .select({ sessionId: readingSessions.sessionId, bookFileId: readingSessions.bookFileId, externalStats: readingSessions.externalStats })
+        .from(readingSessions)
+        .where(
+          and(
+            eq(readingSessions.userId, userId),
+            inArray(
+              readingSessions.sessionId,
+              rows.map((row) => row.sessionId),
+            ),
+          ),
+        );
+      const byId = new Map(stored.map((row) => [row.sessionId, row]));
+      for (const row of rows) {
+        const previous = byId.get(row.sessionId);
+        if (previous?.bookFileId !== file.id || !isDeepStrictEqual(previous.externalStats, row.externalStats))
+          throw new ConflictException('A reading session ID was already used with different data');
+      }
+      if (inserted.length) {
+        await this.lockDailyStats(tx, userId, file.libraryId);
+        const segments = aggregateReadingSessionDailyStats(inserted, timeZone);
+        await this.insertDailyStatsSegments(tx, userId, file.libraryId, segments, 'increment');
+      }
+      return inserted;
+    });
+  }
 
   async saveSession(
     userId: number,

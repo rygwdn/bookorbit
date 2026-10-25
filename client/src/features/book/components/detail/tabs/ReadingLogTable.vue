@@ -98,6 +98,7 @@ const PILL_BASE = 'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 t
 
 const SESSION_SOURCE_PILLS = computed<Record<ReadingSessionSource, { label: string; class: string }>>(() => ({
   web: { label: t('book.detail.readingLog.table.sourceWeb'), class: 'border-[var(--pill-web)]/40 bg-[var(--pill-web)]/10 text-[var(--pill-web)]' },
+  opds: { label: 'OPDS', class: 'border-border bg-muted text-muted-foreground' },
   koreader: { label: 'KOReader', class: 'border-[var(--pill-koreader)]/40 bg-[var(--pill-koreader)]/10 text-[var(--pill-koreader)]' },
   kobo: { label: 'Kobo', class: 'border-[var(--pill-kobo)]/40 bg-[var(--pill-kobo)]/10 text-[var(--pill-kobo)]' },
   manual: { label: t('book.detail.readingLog.table.sourceManual'), class: 'border-border bg-muted text-muted-foreground' },

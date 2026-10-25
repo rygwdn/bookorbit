@@ -1,3 +1,4 @@
+import { OPDS_READING_STATS_REL, OPDS_READING_STATS_TYPE } from '@bookorbit/types';
 import { Injectable } from '@nestjs/common';
 
 import { esc, fileMimeType, OPDS_MIME_ACQ, OPDS_MIME_ATOM, OPDS_MIME_NAV, OPDS_MIME_SEARCH, xmlEl, xmlLink } from './opds-xml.helpers';
@@ -14,7 +15,12 @@ export class OpdsService {
       'bookorbit OPDS Catalog',
       'urn:bookorbit:root',
       now,
-      [xmlLink('self', BASE, OPDS_MIME_NAV), xmlLink('start', BASE, OPDS_MIME_NAV), ...this.searchLinks()],
+      [
+        xmlLink('self', BASE, OPDS_MIME_NAV),
+        xmlLink('start', BASE, OPDS_MIME_NAV),
+        xmlLink('alternate', `${BASE}/v2`, 'application/opds+json'),
+        ...this.searchLinks(),
+      ],
       [
         this.navEntry('urn:bookorbit:all', 'All Books', 'Browse the full catalog', `${BASE}/catalog`, now),
         this.navEntry('urn:bookorbit:recent', 'Recent Books', 'Recently added books', `${BASE}/recent`, now),
@@ -160,6 +166,8 @@ export class OpdsService {
   private bookEntry(book: OpdsBookEntry, coverToken: string): string {
     const lines: string[] = [];
     lines.push('<entry>');
+    lines.push(`  ${xmlLink(OPDS_READING_STATS_REL, `${BASE}/${book.id}/stats`, OPDS_READING_STATS_TYPE)}`);
+    lines.push(`  ${xmlLink('http://opds-spec.org/progression', `${BASE}/${book.id}/progression`, 'application/opds-progression+json')}`);
     lines.push(`  ${xmlEl('title', book.title)}`);
     lines.push(`  ${xmlEl('id', `urn:bookorbit:book:${book.id}`)}`);
     lines.push(`  ${xmlEl('updated', book.updatedAt.toISOString())}`);

@@ -148,9 +148,9 @@ export class OpdsBookService {
     return rows.map((r) => r.libraryId);
   }
 
-  async getAccessibleLibraries(userId: number, isSuperuser = false) {
+  async getAccessibleLibraries(userId: number, isSuperuser = false, page?: { limit: number; offset: number }) {
     if (isSuperuser) {
-      return this.db
+      const query = this.db
         .select({
           id: libraries.id,
           name: libraries.name,
@@ -160,8 +160,9 @@ export class OpdsBookService {
         .leftJoin(books, and(eq(books.libraryId, libraries.id), eq(books.status, 'present')))
         .groupBy(libraries.id)
         .orderBy(libraries.name);
+      return page ? query.limit(page.limit + 1).offset(page.offset) : query;
     }
-    return this.db
+    const query = this.db
       .select({
         id: libraries.id,
         name: libraries.name,
@@ -172,6 +173,7 @@ export class OpdsBookService {
       .leftJoin(books, and(eq(books.libraryId, libraries.id), eq(books.status, 'present')))
       .groupBy(libraries.id)
       .orderBy(libraries.name);
+    return page ? query.limit(page.limit + 1).offset(page.offset) : query;
   }
 
   async getBooksPage(
@@ -579,8 +581,8 @@ export class OpdsBookService {
     return { items: hasNext ? rows.slice(0, opts.limit) : rows, hasNext };
   }
 
-  async getUserCollections(userId: number) {
-    return this.db
+  async getUserCollections(userId: number, page?: { limit: number; offset: number }) {
+    const query = this.db
       .select({
         id: collections.id,
         name: collections.name,
@@ -591,6 +593,7 @@ export class OpdsBookService {
       .where(eq(collections.userId, userId))
       .groupBy(collections.id)
       .orderBy(collections.name);
+    return page ? query.limit(page.limit + 1).offset(page.offset) : query;
   }
 
   // Badge counts only need the totals, so these skip the per-entity book counts
@@ -618,8 +621,8 @@ export class OpdsBookService {
     return Number(row?.total ?? 0);
   }
 
-  async getUserSmartScopes(userId: number) {
-    return this.db
+  async getUserSmartScopes(userId: number, page?: { limit: number; offset: number }) {
+    const query = this.db
       .select({
         id: smartScopes.id,
         name: smartScopes.name,
@@ -628,6 +631,7 @@ export class OpdsBookService {
       .from(smartScopes)
       .where(or(eq(smartScopes.userId, userId), eq(smartScopes.isPublic, true)))
       .orderBy(smartScopes.name);
+    return page ? query.limit(page.limit + 1).offset(page.offset) : query;
   }
 
   async validateBookAccess(bookId: number, userId: number, isSuperuser = false, contentFilters?: ContentFilterRules): Promise<void> {

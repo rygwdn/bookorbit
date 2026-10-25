@@ -1,6 +1,15 @@
 import { sql } from 'drizzle-orm';
 import { check, date, index, integer, jsonb, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
-import type { ReadStatus, ReadStatusSource, ReadingAttemptOrigin, ReadingAttemptOutcome, ReadingSessionSource } from '@bookorbit/types';
+import type {
+  OpdsProgression,
+  OpdsReadingStatsDevice,
+  OpdsReadingStatsSession,
+  ReadStatus,
+  ReadStatusSource,
+  ReadingAttemptOrigin,
+  ReadingAttemptOutcome,
+  ReadingSessionSource,
+} from '@bookorbit/types';
 
 import { bookFiles, books } from './books';
 import { libraries } from './libraries';
@@ -150,6 +159,7 @@ export const readingProgress = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     percentage: real('percentage').notNull().default(0),
+    opdsProgression: jsonb('opds_progression').$type<OpdsProgression>(),
     // EPUB: CFI string pinpoints exact location
     cfi: varchar('cfi', { length: 2000 }),
     // PDF / CBX / CBR: 1-based page number
@@ -214,6 +224,7 @@ export const readingSessions = pgTable(
     sessionId: varchar('session_id', { length: 64 }).notNull(),
     // 'web' (browser reader) | 'koreader' (page-stats derivation) | 'manual' (user-entered) | 'kobo' (future)
     source: varchar('source', { length: 10 }).$type<ReadingSessionSource>(),
+    externalStats: jsonb('external_stats').$type<{ device: OpdsReadingStatsDevice; session: OpdsReadingStatsSession }>(),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
     endedAt: timestamp('ended_at', { withTimezone: true }).notNull(),
     // Server-computed from endedAt - startedAt; client-provided timestamps are untrusted for duration.
@@ -230,7 +241,7 @@ export const readingSessions = pgTable(
     index('rs_user_book_started_at_idx').on(t.userId, t.bookId, t.startedAt),
     index('reading_sessions_book_id_idx').on(t.bookId),
     index('rs_attempt_started_at_idx').on(t.attemptId, t.startedAt),
-    check('reading_sessions_source_chk', sql`${t.source} in ('web', 'koreader', 'manual', 'kobo')`),
+    check('reading_sessions_source_chk', sql`${t.source} in ('web', 'koreader', 'manual', 'kobo', 'opds')`),
     check('reading_sessions_duration_seconds_nonnegative_chk', sql`${t.durationSeconds} >= 0`),
     check('reading_sessions_end_progress_range_chk', sql`${t.endProgress} is null or (${t.endProgress} >= 0 and ${t.endProgress} <= 100)`),
     check('reading_sessions_ended_after_started_chk', sql`${t.endedAt} >= ${t.startedAt}`),

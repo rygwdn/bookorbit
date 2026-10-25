@@ -540,6 +540,20 @@
       "when": 1787605916561,
       "tag": "0076_add_series_index_labels",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1792893109721,
+      "tag": "0077_opds_progression",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792895779603,
+      "tag": "0078_opds_reading_stats",
+      "breakpoints": true
     }
   ]
 }

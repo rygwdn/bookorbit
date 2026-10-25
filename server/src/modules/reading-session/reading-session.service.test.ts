@@ -28,6 +28,8 @@ function makeUser(overrides?: Partial<RequestUser>): RequestUser {
 }
 
 const mockRepo = {
+  findOpdsFile: vi.fn(),
+  saveOpdsBatch: vi.fn(),
   saveSession:
     vi.fn<
       (
@@ -37,6 +39,8 @@ const mockRepo = {
 };
 
 const mockBookService = {
+  verifyBookAccess: vi.fn(),
+  autoUpdateReadStatusForProgress: vi.fn(),
   verifyFileAccess: vi.fn<(...args: [number, RequestUser]) => Promise<void>>(),
 };
 
@@ -54,6 +58,38 @@ describe('ReadingSessionService', () => {
       mockBookService as unknown as BookService,
       { emit: vi.fn() } as never,
     );
+  });
+
+  const batch = {
+    version: 1 as const,
+    device: { id: 'urn:test:reader', name: 'Reader' },
+    sessions: [
+      {
+        id: 'c38cbe7a-2051-42be-91e2-8571ba992825',
+        started: '2026-01-01T12:00:00Z',
+        ended: '2026-01-01T12:01:00Z',
+        activeSeconds: 50,
+        pagesTurned: 3,
+        endProgression: 1,
+      },
+    ],
+  };
+  it('acknowledges retries without changing current reading status', async () => {
+    mockRepo.findOpdsFile.mockResolvedValue({ id: 12, bookId: 7, libraryId: 3 });
+    mockRepo.saveOpdsBatch.mockResolvedValue([]);
+    expect(await service.saveOpdsBatch(7, 12, batch, makeUser())).toEqual({ version: 1, accepted: [batch.sessions[0].id] });
+    expect(mockBookService.verifyBookAccess).toHaveBeenCalledWith(7, expect.objectContaining({ id: 7 }));
+    expect(mockRepo.saveOpdsBatch).toHaveBeenCalledWith(7, { id: 12, bookId: 7, libraryId: 3 }, batch, 'UTC');
+    expect(mockBookService.autoUpdateReadStatusForProgress).not.toHaveBeenCalled();
+  });
+  it.each([
+    { ...batch, sessions: [...batch.sessions, ...batch.sessions] },
+    { ...batch, sessions: [{ ...batch.sessions[0], activeSeconds: 61 }] },
+    { ...batch, sessions: [{ ...batch.sessions[0], ended: batch.sessions[0].started }] },
+    { ...batch, sessions: [{ ...batch.sessions[0], ended: '2099-01-01T12:00:00Z' }] },
+  ])('validates the entire stats batch before writing', async (invalid) => {
+    await expect(service.saveOpdsBatch(7, 12, invalid, makeUser())).rejects.toBeInstanceOf(BadRequestException);
+    expect(mockRepo.saveOpdsBatch).not.toHaveBeenCalled();
   });
 
   it('verifies access and persists a session with wall-clock clamped duration', async () => {

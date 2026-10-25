@@ -1,3 +1,4 @@
+import { cacheDeviceCover } from '../../common/device-cover';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
@@ -800,6 +801,7 @@ export class MetadataService {
     if (!preserveCustom) {
       const thumbnail = await generateThumbnail(bytes);
       await writeFile(bookThumbnailPath(this.appDataPath, bookId), thumbnail);
+      await cacheDeviceCover(this.appDataPath, bookId, bytes);
     }
 
     const now = new Date();
