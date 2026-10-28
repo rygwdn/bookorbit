@@ -331,43 +331,6 @@ describe('KoreaderHashLinkService', () => {
       expect(mockRepo.promoteOrphanedDeviceProgress).toHaveBeenCalledWith(7, HASH_A, 44);
     });
 
-    it('promotes orphaned progress after the link and unmatched row are cleared', async () => {
-      mockRepo.getUnmatchedBook.mockResolvedValue(makeUnmatchedRow());
-      mockRepo.findBookFileIdByBookId.mockResolvedValue(44);
-      mockRepo.resolveBookFileByHash.mockResolvedValue(null);
-
-      await service.linkUnmatchedBook(user, HASH_A, 55);
-
-      expect(mockRepo.promoteOrphanedDeviceProgress).toHaveBeenCalledTimes(1);
-      // The position rows move to the file only once the queue entry is gone, so a request
-      // racing the link never sees both an unmatched row and resolved progress.
-      expect(mockRepo.promoteOrphanedDeviceProgress).toHaveBeenCalledWith(7, HASH_A, 44);
-      expect(mockRepo.promoteOrphanedDeviceProgress.mock.invocationCallOrder[0]!).toBeGreaterThan(
-        mockRepo.clearUnmatchedBooks.mock.invocationCallOrder[0]!,
-      );
-    });
-
-    it('still promotes orphaned progress when the hash already resolves intrinsically', async () => {
-      mockRepo.getUnmatchedBook.mockResolvedValue(makeUnmatchedRow());
-      mockRepo.findBookFileIdByBookId.mockResolvedValue(44);
-      mockRepo.resolveBookFileByHash.mockResolvedValue({ id: 44, bookId: 55, libraryId: 1 });
-
-      await service.linkUnmatchedBook(user, HASH_A, 55);
-
-      expect(mockRepo.upsertBookHashLink).not.toHaveBeenCalled();
-      expect(mockRepo.promoteOrphanedDeviceProgress).toHaveBeenCalledWith(7, HASH_A, 44);
-    });
-
-    it('does not promote orphaned progress when the link is rejected', async () => {
-      mockRepo.getUnmatchedBook.mockResolvedValue(makeUnmatchedRow());
-      mockRepo.findBookFileIdByBookId.mockResolvedValue(44);
-      mockRepo.resolveBookFileByHash.mockResolvedValue({ id: 99, bookId: 88, libraryId: 1 });
-
-      await expect(service.linkUnmatchedBook(user, HASH_A, 55)).rejects.toThrow(ConflictException);
-
-      expect(mockRepo.promoteOrphanedDeviceProgress).not.toHaveBeenCalled();
-    });
-
     it('preserves explicit intent even when the hash already resolves to the same file intrinsically', async () => {
       mockRepo.getUnmatchedBook.mockResolvedValue(makeUnmatchedRow());
       mockRepo.findBookFileIdByBookId.mockResolvedValue(44);

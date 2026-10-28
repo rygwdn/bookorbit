@@ -120,7 +120,6 @@ describe('KOReader plugin update source wiring', () => {
     expect(data).toContain('if bytes == nil and not read_along then bytes = file.sourceSizeBytes end');
   });
 
-
   it('keeps book action downloads compact without duplicating download options', async () => {
     const detail = await readPluginFile('bookorbit_catalog_detail.lua');
     const download = await readPluginFile('bookorbit_catalog_download.lua');

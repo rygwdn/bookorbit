@@ -166,7 +166,15 @@ Report backup refs; upstream before/after range and summary; integration outcome
 
 ## Behavioral compatibility notes
 
-The 2026-10-11 maintenance pass removed invalid migration filename-order checks without changing shipped migrations. It also restored the user-form Workflows permission group: Admin selects both `run_workflows` and `manage_workflows`, Standard selects neither, and backend authorization is unchanged.
+The 2026-10-28 reconstruction removes custom book-file workflows, including their UI, permissions, background execution and delivery substitutions. The branch retains KOSync metadata matching and orphaned progress, KOReader catalog snapshots, session-only indexer sign-in, the mobile form font fix and the fork image publishing pipeline.
+
+The pre-removal code is preserved at `backup/personal-integration-before-workflow-removal-20261028` (`5946551a`). Historical migration SQL, tags and timestamps remain unchanged, including the workflow migrations. Existing workflow tables, output files and hash-history provenance are left intact but are no longer exposed or executed by the application. Fresh databases replay the same history; no destructive workflow cleanup is performed.
+
+The merged journal keeps the shipped `0104_refresh_unmeasured_media_overlay_durations` tag instead of the byte-identical upstream `0101_refresh_unmeasured_media_overlay_durations` alias. Journal indices are chronological and contiguous, not filename prefixes. Upstream snapshots remain the active application-schema baseline; dormant historical workflow tables are intentionally outside the ORM schema.
+
+`0138_reconcile_skipped_email_provider_test_result` repairs the upstream `0110` email-provider test-result columns on databases whose deployed fork watermark is already newer than that migration. Before deployment, replay both the pre-removal runtime migrator followed by the candidate runtime migrator and a fresh candidate database. Confirm all three email-provider test-result columns exist in both databases. This reconstruction does not authorize pushing, publishing or deploying.
+
+Local verification compiled the backup runtime migrator from `5946551a`, ran it against disposable PostgreSQL, then ran the built candidate migrator against that database and a second fresh database. The schemas matched across 1,789 columns, 1,964 constraints and 646 indexes. The upgraded ledger has 138 rows versus 139 on fresh installation because upstream `0110` is skipped on upgrade and repaired by `0138`. These are source-runtime checks, not production-image or live-production verification.
 
 The user explicitly superseded the teardown/rearm approach and dependency patch proposal. The task-introduced watcher implementation, async caller migrations, associated tests and Chokidar patch/config/lockfile changes were reverted. `FileWatcherService.pauseWatcher()` and `resumeWatcher()` retain their original synchronous `boolean` contract and live watcher handles. No Chokidar patch was installed or retained.
 
@@ -176,6 +184,6 @@ The user explicitly authorized a temporary, one-release exception for the origin
 
 The same paused-event leakage was observed in the original Linux/arm64 local image and the existing published Linux/amd64 image, using real file writes, no fixed sleeps and no injected stale callback. Both delivered `while-paused.epub` as well as `after-resume.epub`. The release report must identify all observed platforms rather than describe the failure as macOS-only. Publication remains authorized under the explicit exception for this same original failure only.
 
-For a parallel witchhunt worker: no HTTP routes, request DTOs, response shapes, plugin APIs, watcher service signatures or database schema changed. Workflow permission administration is now available through the existing user form. Do not integrate newer upstream or feature-unification work as part of this maintenance pass.
+Historical maintenance notes below describe the pre-removal branch, not currently available workflow functionality.
 
-The 2026-10-12 history-only maintenance pass groups local follow-up commits by feature before rebasing. Previously shipped migration SQL and journal timestamps remain unchanged; colliding snapshot filenames are retained separately. Workflow output delivery carries the output file's own revision and filesystem identity into upstream delivery selection, while upstream's default streaming behavior remains intact. History maintenance does not authorize publication or production deployment.
+The 2026-10-12 history-only maintenance pass grouped local follow-up commits by feature before rebasing. Previously shipped migration SQL and journal timestamps remained unchanged; colliding snapshot filenames were retained separately. Its workflow output delivery integration is superseded by the 2026-10-28 removal. History maintenance does not authorize publication or production deployment.
