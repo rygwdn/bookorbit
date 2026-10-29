@@ -1,0 +1,1 @@
+ALTER TABLE "reading_progress" ADD COLUMN "opds_progression" jsonb;

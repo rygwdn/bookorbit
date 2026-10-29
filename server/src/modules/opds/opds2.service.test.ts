@@ -39,6 +39,16 @@ describe('Opds2Service', () => {
     expect(result.links).toContainEqual(
       expect.objectContaining({ href: '/api/v1/opds/7/download?fileId=12', type: 'application/epub+zip', rel: 'acquisition' }),
     );
+    expect(result.links.find((link) => link.rel === 'acquisition')?.properties?.['https://bookorbit.app/ns/progression']).toBe(
+      '/api/v1/opds/7/progression?fileId=12',
+    );
+    expect(result.links).toContainEqual(
+      expect.objectContaining({
+        href: '/api/v1/opds/7/progression',
+        rel: 'http://opds-spec.org/progression',
+        type: 'application/opds-progression+json',
+      }),
+    );
     expect(result.images?.[0]).toMatchObject({ width: 160, height: 240, type: 'image/jpeg' });
     expect(result.metadata).not.toHaveProperty('publisher');
   });

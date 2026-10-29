@@ -62,10 +62,47 @@ clients that cannot use it fall back to the plain thumbnail link that follows.
 The settings page shows both catalog endpoints (OPDS 1.2 and OPDS 2.0) with
 independent copy buttons under _Reader → OPDS_.
 
-## What stage 1 does not cover
+## Reading position (OPDS progression)
 
-Reading-position progression, reading-statistics documents and OPDS
-authentication documents are not part of this stage; acquisition links remain
-on the OPDS 1.2 download route and progress sync continues to flow through the
-existing integrations. The catalog stays read-only: no checkouts, holds or
-grouping feeds.
+Progress sync uses the OPDS progression draft. Every publication carries:
+
+- a feed-level link `rel="http://opds-spec.org/progression"`
+  (`application/opds-progression+json`) to `/api/v1/opds/:bookId/progression`;
+- one per-file acquisition property `https://bookorbit.app/ns/progression`
+  pointing at `/api/v1/opds/:bookId/progression?fileId=<fileId>`, so a device
+  always targets the file it is reading.
+
+The routes are served by the OPDS 1.2 controller and guarded by OPDS Basic
+credentials exactly like the rest of the catalog:
+
+- `GET /api/v1/opds/:bookId/progression[?fileId=]` returns the stored
+  progression document, or an empty 200 when the reader has not started the
+  book. Without `fileId` the primary content file is addressed.
+- `PUT` accepts a progression document (`modified`, `device`,
+  `progression` 0..1, optional `references`) and stores it atomically. An
+  older `modified` than the stored point is rejected with 409
+  (Problem Details, `https://registry.opds.io/error#progression-date`); an
+  identical replay is idempotent.
+
+Writing progress is bridged into the rest of Bookorbit in the same way the
+KOReader and audio integrations are: the progression row, the read-status
+rules and the Kobo two-way sync run in one serialized write transaction
+(an advisory lock serializes writers). The effects commit atomically with the
+row they belong to: a failed effect rolls the whole update back, and the
+client's identical retry replays the write together with the effects. An
+accepted identical replay finds the stored row and returns it unchanged
+without re-running the effects. A deliberate backward move (10 or more points
+down) reaches the read-status rules as strong re-read evidence. Achievement
+notifications fired inside the rules stay best-effort.
+
+Errors follow OPDS Problem Details: 401 answers with the OPDS authentication
+document (`GET /api/v1/opds/authentication`,
+`application/opds-authentication+json`, HTTP Basic), 400/409 are
+`application/problem+json` documents.
+
+## What stage 2 does not cover
+
+Reading-statistics documents (custom session stats), per-device stat
+ingestion and their schema are the next stage; acquisition links advertise
+progression only. The catalog stays read-only apart from progression: no
+checkouts, holds or grouping feeds.

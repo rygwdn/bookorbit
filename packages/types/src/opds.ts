@@ -55,3 +55,11 @@ export interface OpdsFeedGroup {
   publications?: OpdsPublication[];
   navigation?: OpdsLink[];
 }
+
+export interface OpdsProgression {
+  title?: string;
+  modified: string;
+  device: { id: string; name: string };
+  progression: number;
+  references?: string[];
+}

@@ -9,6 +9,8 @@ import type {
   UserBookStatus,
 } from '@bookorbit/types';
 
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import type * as schema from '../../db/schema';
 import { ReadingAttemptRepository, type AttemptProjection } from './reading-attempt.repository';
 import { ReadingAttemptEventsService } from './reading-attempt-events.service';
 import { READING_DATE_ERROR_CODES } from './user-book-status.constants';
@@ -49,6 +51,9 @@ function projectionDatesFor(
 type ManualStatusOptions = {
   statusWasExplicit?: boolean;
 };
+
+type Db = NodePgDatabase<typeof schema>;
+type DbTransaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 @Injectable()
 export class ReadingAttemptService {
@@ -267,20 +272,23 @@ export class ReadingAttemptService {
     return result;
   }
 
-  async recordActivity(input: {
-    userId: number;
-    bookId: number;
-    occurredOn: string;
-    origin: Exclude<ReadingAttemptOrigin, 'manual' | 'hardcover' | 'migration'>;
-    progress: number;
-    finishThreshold: number;
-    strongRereadEvidence: boolean;
-    meaningfulActivity: boolean;
-    /** The reader's timezone, which files late sessions into the read they belong to. */
-    timeZone?: string;
-  }): Promise<UserBookStatus | null> {
+  async recordActivity(
+    input: {
+      userId: number;
+      bookId: number;
+      occurredOn: string;
+      origin: Exclude<ReadingAttemptOrigin, 'manual' | 'hardcover' | 'migration'>;
+      progress: number;
+      finishThreshold: number;
+      strongRereadEvidence: boolean;
+      meaningfulActivity: boolean;
+      /** The reader's timezone, which files late sessions into the read they belong to. */
+      timeZone?: string;
+    },
+    executor?: DbTransaction,
+  ): Promise<UserBookStatus | null> {
     let changed = false;
-    const result = await this.repo.transaction<UserBookStatus | null>(async (tx) => {
+    const run = async (tx: DbTransaction): Promise<UserBookStatus | null> => {
       let active: Awaited<ReturnType<ReadingAttemptRepository['findActive']>> | null = await this.repo.findActive(tx, input.userId, input.bookId);
       let latest = active ?? (await this.repo.findLatest(tx, input.userId, input.bookId));
       const hasCompleted = await this.repo.hasCompleted(tx, input.userId, input.bookId);
@@ -375,7 +383,8 @@ export class ReadingAttemptService {
         finishedAt: projectionTarget?.outcome === 'completed' ? (projectionTarget.endedOn ?? null) : null,
         updatedAt: new Date().toISOString(),
       };
-    });
+    };
+    const result = executor ? await run(executor) : await this.repo.transaction<UserBookStatus | null>(run);
     if (changed) this.events.notifyChanged(input.userId);
     return result;
   }

@@ -16,7 +16,14 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
-import type { ReadStatus, ReadStatusSource, ReadingAttemptOrigin, ReadingAttemptOutcome, ReadingSessionSource } from '@bookorbit/types';
+import type {
+  OpdsProgression,
+  ReadStatus,
+  ReadStatusSource,
+  ReadingAttemptOrigin,
+  ReadingAttemptOutcome,
+  ReadingSessionSource,
+} from '@bookorbit/types';
 
 import { bookFiles, books } from './books';
 import { timestamptz } from './columns';
@@ -243,6 +250,9 @@ export const readingProgress = pgTable(
     koboContentSourceProgressPercent: real('kobo_content_source_progress_percent'),
     // KOReader: XPointer progress string generated from the EPUB DOM
     koreaderProgress: text('koreader_progress'),
+    // OPDS: the last progression document a device PUT, kept verbatim so an identical
+    // replay can be recognized and effects stay idempotent.
+    opdsProgression: jsonb('opds_progression').$type<OpdsProgression>(),
     // EPUB3 narration keeps its own progress beside the text position above, because the two move
     // independently: a reader can be at 32% by eye and a minute into the narration. They shared
     // `percentage` and `cfi` until a read-along resume wrote the narration marker over a page the
