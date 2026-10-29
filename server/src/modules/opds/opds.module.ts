@@ -4,9 +4,11 @@ import type { FastifyInstance } from 'fastify';
 
 import { registerOpdsProgressionHttp } from './opds-http';
 import { OpdsAuthenticationController } from './opds-authentication.controller';
+import { OpdsReadingStatsController } from './opds-reading-stats.controller';
 import { OpdsProgressionController } from './opds-progression.controller';
 import { OpdsProgressionService } from './opds-progression.service';
 import { AppSettingsModule } from '../app-settings/app-settings.module';
+import { ReadingSessionModule } from '../reading-session/reading-session.module';
 import { DashboardModule } from '../dashboard/dashboard.module';
 import { AchievementModule } from '../achievement/achievement.module';
 import { BookModule } from '../book/book.module';
@@ -25,8 +27,15 @@ import { OpdsUserController } from './opds-user.controller';
 import { OpdsUserService } from './opds-user.service';
 
 @Module({
-  imports: [AppSettingsModule, AchievementModule, BookModule, BookCoverStoreModule, DashboardModule, UserModule, CommonModule],
-  controllers: [OpdsAuthenticationController, OpdsProgressionController, OpdsController, Opds2Controller, OpdsUserController],
+  imports: [ReadingSessionModule, AppSettingsModule, AchievementModule, BookModule, BookCoverStoreModule, DashboardModule, UserModule, CommonModule],
+  controllers: [
+    OpdsReadingStatsController,
+    OpdsAuthenticationController,
+    OpdsProgressionController,
+    OpdsController,
+    Opds2Controller,
+    OpdsUserController,
+  ],
   providers: [
     OpdsProgressionService,
     OpdsService,

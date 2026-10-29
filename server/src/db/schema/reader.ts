@@ -18,6 +18,8 @@ import {
 } from 'drizzle-orm/pg-core';
 import type {
   OpdsProgression,
+  OpdsReadingStatsDevice,
+  OpdsReadingStatsSession,
   ReadStatus,
   ReadStatusSource,
   ReadingAttemptOrigin,
@@ -331,6 +333,9 @@ export const readingSessions = pgTable(
     endProgress: real('end_progress'),
     // Counter-derived sync estimates only: the previous counter push, where the interval the estimate stands for begins.
     syncIntervalStartedAt: timestamp('sync_interval_started_at', { withTimezone: true }),
+    // OPDS: the device document a stats batch was ingested from, kept verbatim for dedup
+    // comparisons and per-device inspection.
+    externalStats: jsonb('external_stats').$type<{ device: OpdsReadingStatsDevice; session: OpdsReadingStatsSession }>(),
   },
   (t) => [
     uniqueIndex('rs_user_session_id_uidx').on(t.userId, t.sessionId),
@@ -341,7 +346,7 @@ export const readingSessions = pgTable(
     index('rs_user_book_source_device_started_idx').on(t.userId, t.bookId, t.source, t.sourceDeviceKey, t.startedAt),
     index('reading_sessions_book_id_idx').on(t.bookId),
     index('rs_attempt_started_at_idx').on(t.attemptId, t.startedAt),
-    check('reading_sessions_source_chk', sql`${t.source} in ('web', 'ios', 'watchos', 'android', 'koreader', 'manual', 'kobo')`),
+    check('reading_sessions_source_chk', sql`${t.source} in ('web', 'ios', 'watchos', 'android', 'koreader', 'manual', 'kobo', 'opds')`),
     check('reading_sessions_duration_seconds_nonnegative_chk', sql`${t.durationSeconds} >= 0`),
     check('reading_sessions_end_progress_range_chk', sql`${t.endProgress} is null or (${t.endProgress} >= 0 and ${t.endProgress} <= 100)`),
     check('reading_sessions_ended_after_started_chk', sql`${t.endedAt} >= ${t.startedAt}`),

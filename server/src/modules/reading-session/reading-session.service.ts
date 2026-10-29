@@ -1,3 +1,4 @@
+import { OPDS_READING_STATS_BATCH_MAX, type OpdsReadingStatsBatch, type OpdsReadingStatsReceipt } from '@bookorbit/types';
 import { randomUUID } from 'node:crypto';
 
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -32,6 +33,60 @@ export class ReadingSessionService {
 
   private resolveUserTimeZone(user: RequestUser): string {
     return resolveTimeZone((user.settings as { timezone?: unknown } | undefined)?.timezone, 'UTC');
+  }
+
+  async saveOpdsBatch(bookId: number, fileId: number | undefined, batch: OpdsReadingStatsBatch, user: RequestUser): Promise<OpdsReadingStatsReceipt> {
+    const startedAtMs = Date.now();
+    this.logger.debug(`[opds.reading_stats] [start] userId=${user.id} bookId=${bookId} sessions=${batch.sessions.length} - stats upload started`);
+    try {
+      await this.bookService.verifyBookAccess(bookId, user);
+      if (
+        batch.sessions.length < 1 ||
+        batch.sessions.length > OPDS_READING_STATS_BATCH_MAX ||
+        new Set(batch.sessions.map((session) => session.id)).size !== batch.sessions.length
+      )
+        throw new BadRequestException('A batch must contain 1 to 16 unique sessions');
+      for (const session of batch.sessions) {
+        const started = new Date(session.started).getTime();
+        const ended = new Date(session.ended).getTime();
+        const span = Math.floor((ended - started) / 1000);
+        if (
+          !Number.isFinite(started) ||
+          !Number.isFinite(ended) ||
+          span < 1 ||
+          span > 604800 ||
+          ended > Date.now() + 300000 ||
+          session.activeSeconds > span
+        )
+          throw new BadRequestException('Session timestamps or active duration are invalid');
+      }
+      const file = await this.repo.findOpdsFile(bookId, fileId);
+      if (!file) throw new NotFoundException('Publication file not found');
+      const timezone = this.resolveUserTimeZone(user);
+      const inserted = await this.repo.saveOpdsBatch(user.id, file, batch, timezone);
+      for (const session of inserted) {
+        this.achievementEvents.emit(ACHIEVEMENT_EVENT_READING_SESSION_SAVED, {
+          userId: user.id,
+          bookFileId: file.id,
+          durationSeconds: session.durationSeconds,
+          startedAt: session.startedAt,
+          endedAt: session.endedAt,
+          progressDelta: session.progressDelta,
+          endProgress: session.endProgress,
+          timezone,
+        });
+      }
+      this.logger.debug(
+        `[opds.reading_stats] [end] userId=${user.id} bookId=${bookId} durationMs=${Date.now() - startedAtMs} inserted=${inserted.length} acknowledged=${batch.sessions.length} - stats upload completed`,
+      );
+      return { version: 1, accepted: batch.sessions.map((session) => session.id) };
+    } catch (error) {
+      const errorClass = error instanceof Error ? error.constructor.name : typeof error;
+      this.logger.warn(
+        `[opds.reading_stats] [fail] userId=${user.id} bookId=${bookId} durationMs=${Date.now() - startedAtMs} errorClass=${errorClass} error="${sanitizeLogValue(error instanceof Error ? error.message : error)}" - stats upload failed`,
+      );
+      throw error;
+    }
   }
 
   async save(

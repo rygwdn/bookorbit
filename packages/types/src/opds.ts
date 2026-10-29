@@ -63,3 +63,34 @@ export interface OpdsProgression {
   progression: number;
   references?: string[];
 }
+
+export const OPDS_READING_STATS_REL = "https://bookorbit.app/rel/reading-stats";
+export const OPDS_READING_STATS_TYPE = "application/vnd.bookorbit.reading-stats+json";
+export const OPDS_READING_STATS_FILE_HINT = "https://bookorbit.app/ns/reading-stats";
+export const OPDS_READING_STATS_BATCH_MAX = 16;
+
+export interface OpdsReadingStatsDevice {
+  id: string;
+  name: string;
+}
+
+export interface OpdsReadingStatsSession {
+  id: string;
+  started: string;
+  ended: string;
+  activeSeconds: number;
+  pagesTurned: number;
+  startProgression?: number;
+  endProgression?: number;
+}
+
+export interface OpdsReadingStatsBatch {
+  version: 1;
+  device: OpdsReadingStatsDevice;
+  sessions: OpdsReadingStatsSession[];
+}
+
+export interface OpdsReadingStatsReceipt {
+  version: 1;
+  accepted: string[];
+}

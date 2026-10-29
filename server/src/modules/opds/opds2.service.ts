@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { OPDS_READING_STATS_FILE_HINT, OPDS_READING_STATS_REL, OPDS_READING_STATS_TYPE } from '@bookorbit/types';
 import type { OpdsFeed, OpdsLink, OpdsPublication } from '@bookorbit/types';
 import { htmlToPlainText } from '../../common/utils/html-to-text.utils';
 import type { OpdsBookEntry } from './opds-book.service';
@@ -84,8 +85,15 @@ export class Opds2Service {
         rel: 'acquisition',
         properties: {
           'https://bookorbit.app/ns/progression': `/api/v1/opds/${book.id}/progression?fileId=${file.id}`,
+          [OPDS_READING_STATS_FILE_HINT]: `/api/v1/opds/${book.id}/stats?fileId=${file.id}`,
         },
       })),
+      {
+        href: `/api/v1/opds/${book.id}/stats`,
+        rel: OPDS_READING_STATS_REL,
+        type: OPDS_READING_STATS_TYPE,
+        properties: { authenticate: { href: AUTHENTICATION_HREF, type: 'application/opds-authentication+json' } },
+      },
       {
         href: `/api/v1/opds/${book.id}/progression`,
         rel: PROGRESSION_REL,
