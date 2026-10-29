@@ -9,6 +9,7 @@ import type { ContentFilterRules } from '@bookorbit/types';
 import { PermissionService } from '../../common/services/permission.service';
 import { OpdsUserService } from './opds-user.service';
 import { UserService } from '../user/user.service';
+import type { RequestUser } from '../../common/types/request-user';
 
 export interface OpdsRequestUser {
   opdsUserId: number;
@@ -19,6 +20,7 @@ export interface OpdsRequestUser {
   isSuperuser: boolean;
   coverToken: string;
   contentFilters: ContentFilterRules;
+  account: RequestUser;
 }
 
 export function createCoverToken(userId: number, secret: string): string {
@@ -88,6 +90,7 @@ export class OpdsAuthGuard implements CanActivate {
         isSuperuser: fullUser.isSuperuser,
         coverToken: tokenParam,
         contentFilters: fullUser.contentFilters,
+        account: fullUser,
       } satisfies OpdsRequestUser;
 
       return true;
@@ -139,6 +142,7 @@ export class OpdsAuthGuard implements CanActivate {
       isSuperuser: fullUser.isSuperuser,
       coverToken: createCoverToken(result.parentUser.id, secret),
       contentFilters: fullUser.contentFilters,
+      account: fullUser,
     } satisfies OpdsRequestUser;
 
     return true;

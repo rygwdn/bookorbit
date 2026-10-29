@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { hash } from 'bcryptjs';
 import fastifyCookie from '@fastify/cookie';
+import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { mkdir } from 'fs/promises';
@@ -87,6 +88,15 @@ export async function createOpdsE2EContext(): Promise<OpdsE2EContext> {
   const app = moduleFixture.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
   app.setGlobalPrefix('api/v1');
   await app.register(fastifyCookie as never);
+  // Mirror main.ts's global pipe so the harness exercises the production validation behavior
+  // (whitelist + forbidNonWhitelisted + transform) that the query DTOs rely on for defaults.
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 

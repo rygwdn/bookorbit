@@ -18,7 +18,12 @@ export class OpdsService {
       'bookorbit OPDS Catalog',
       'urn:bookorbit:root',
       now,
-      [xmlLink('self', BASE, OPDS_MIME_NAV), xmlLink('start', BASE, OPDS_MIME_NAV), ...this.searchLinks()],
+      [
+        xmlLink('self', BASE, OPDS_MIME_NAV),
+        xmlLink('start', BASE, OPDS_MIME_NAV),
+        xmlLink('alternate', '/api/v1/opds2/catalog', 'application/opds+json', 'OPDS 2 catalog'),
+        ...this.searchLinks(),
+      ],
       [
         this.navEntry('urn:bookorbit:all', 'All Books', 'Browse the full catalog', `${BASE}/catalog`, now),
         this.navEntry('urn:bookorbit:recent', 'Recent Books', 'Recently added books', `${BASE}/recent`, now),
