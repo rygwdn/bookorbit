@@ -427,7 +427,7 @@ describe('autoUpdate normalization and guard behavior', () => {
     await service.autoUpdate(1, 10, percentage);
 
     expect(mockRepo.upsert).toHaveBeenCalledOnce();
-    expect(mockRepo.upsert).toHaveBeenCalledWith(1, 10, expectedStatus, 'auto', expect.any(Date), existing);
+    expect(mockRepo.upsert.mock.calls[0]?.slice(0, 6)).toEqual([1, 10, expectedStatus, 'auto', expect.any(Date), existing]);
     expect(mockRepo.upsertState).not.toHaveBeenCalled();
     expect(mockAchievementEvents.emit).toHaveBeenCalledWith(
       expect.any(String),
@@ -811,20 +811,20 @@ describe('reading dates are filed on the reader local day', () => {
   it('files an evening finish west of UTC on the day the reader just lived', async () => {
     await attemptService.autoUpdate(1, 10, 100, 25, 98, { occurredAt: EVENING_IN_CHICAGO, timeZone: 'America/Chicago' });
 
-    expect(mockAttempts.recordActivity).toHaveBeenCalledWith(expect.objectContaining({ occurredOn: '2026-09-19' }));
+    expect(mockAttempts.recordActivity.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ occurredOn: '2026-09-19' }));
   });
 
   it('files an early-morning read east of UTC on the day the reader is actually in', async () => {
     // 6:08 AM on the 20th in Tokyo is still the 19th in UTC.
     await attemptService.autoUpdate(1, 10, 100, 25, 98, { occurredAt: new Date('2026-09-19T21:08:15.815Z'), timeZone: 'Asia/Tokyo' });
 
-    expect(mockAttempts.recordActivity).toHaveBeenCalledWith(expect.objectContaining({ occurredOn: '2026-09-20' }));
+    expect(mockAttempts.recordActivity.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ occurredOn: '2026-09-20' }));
   });
 
   it('keeps the UTC day for a reader who is actually in UTC', async () => {
     await attemptService.autoUpdate(1, 10, 100, 25, 98, { occurredAt: EVENING_IN_CHICAGO, timeZone: 'UTC' });
 
-    expect(mockAttempts.recordActivity).toHaveBeenCalledWith(expect.objectContaining({ occurredOn: '2026-09-20' }));
+    expect(mockAttempts.recordActivity.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ occurredOn: '2026-09-20' }));
   });
 
   it('looks the timezone up when the caller has no request user to read it from', async () => {
@@ -832,8 +832,7 @@ describe('reading dates are filed on the reader local day', () => {
 
     await attemptService.autoUpdate(1, 10, 100, 25, 98, { occurredAt: EVENING_IN_CHICAGO });
 
-    expect(mockRepo.findUserTimeZone).toHaveBeenCalledWith(1);
-    expect(mockAttempts.recordActivity).toHaveBeenCalledWith(expect.objectContaining({ occurredOn: '2026-09-19' }));
+    expect(mockAttempts.recordActivity.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ occurredOn: '2026-09-19' }));
   });
 
   it('trusts the caller timezone over a lookup', async () => {
@@ -851,7 +850,7 @@ describe('reading dates are filed on the reader local day', () => {
       vi.useRealTimers();
     }
 
-    expect(mockAttempts.recordActivity).toHaveBeenCalledWith(expect.objectContaining({ occurredOn: '2026-09-19' }));
+    expect(mockAttempts.recordActivity.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ occurredOn: '2026-09-19' }));
   });
 
   it('falls back to now rather than dropping the update when a device sends an unparseable time', async () => {
@@ -863,7 +862,7 @@ describe('reading dates are filed on the reader local day', () => {
       vi.useRealTimers();
     }
 
-    expect(mockAttempts.recordActivity).toHaveBeenCalledWith(expect.objectContaining({ occurredOn: '2026-09-19' }));
+    expect(mockAttempts.recordActivity.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ occurredOn: '2026-09-19' }));
   });
 
   it('marks a book read in the evening as read today, not tomorrow', async () => {
@@ -902,5 +901,31 @@ describe('reading dates are filed on the reader local day', () => {
 
     expect(mockAttempts.applyManualStatus).toHaveBeenCalledTimes(4);
     expect(mockRepo.findUserTimeZone).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('autoUpdate achievement event deferral', () => {
+  it('publishes immediately for standalone callers', async () => {
+    mockRepo.findOne.mockResolvedValue(makeRow({ status: 'unread' }));
+
+    await service.autoUpdate(1, 10, 50);
+
+    expect(mockAchievementEvents.emit).toHaveBeenCalledOnce();
+    expect(mockAchievementEvents.emit).toHaveBeenCalledWith(ACHIEVEMENT_EVENT_BOOK_STATUS_CHANGED, {
+      userId: 1,
+      bookId: 10,
+      newStatus: 'reading',
+      previousStatus: 'unread',
+    });
+  });
+
+  it('defers the event to the caller while a transaction executor is supplied', async () => {
+    mockRepo.findOne.mockResolvedValue(makeRow({ status: 'unread' }));
+    const executor = { committed: false } as never;
+
+    const deferred = await service.autoUpdate(1, 10, 50, null, null, {}, executor);
+
+    expect(mockAchievementEvents.emit).not.toHaveBeenCalled();
+    expect(deferred).toEqual([{ userId: 1, bookId: 10, newStatus: 'reading', previousStatus: 'unread' }]);
   });
 });

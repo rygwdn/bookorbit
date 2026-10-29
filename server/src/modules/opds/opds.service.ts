@@ -254,6 +254,7 @@ export class OpdsService {
       lines.push(`  ${xmlLink('http://opds-spec.org/acquisition', href, mime, label)}`);
     }
 
+    lines.push(`  ${xmlLink('http://opds-spec.org/progression', `${BASE}/${book.id}/progression`, 'application/opds-progression+json')}`);
     lines.push('</entry>');
     return lines.join('\n');
   }

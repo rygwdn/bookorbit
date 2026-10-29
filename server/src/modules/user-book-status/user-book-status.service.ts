@@ -1,9 +1,15 @@
 import { Injectable, InternalServerErrorException, Logger, Optional } from '@nestjs/common';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type { ReadStatus, UserBookStatus } from '@bookorbit/types';
 import { UserBookStatusRepository } from './user-book-status.repository';
 import type { UserBookStatusRow } from '../../db/schema';
+import type * as schema from '../../db/schema';
 import { isReadStatus, isReadStatusSource } from './user-book-status.constants';
-import { AchievementEventsService, ACHIEVEMENT_EVENT_BOOK_STATUS_CHANGED } from '../achievement/achievement-events.service';
+import {
+  AchievementEventsService,
+  ACHIEVEMENT_EVENT_BOOK_STATUS_CHANGED,
+  type BookStatusChangedPayload,
+} from '../achievement/achievement-events.service';
 import { KoboStatusProjectionRepository } from './kobo-status-projection.repository';
 import { ReadingAttemptService } from './reading-attempt.service';
 import { sanitizeLogValue } from '../../common/utils/log-sanitize.utils';
@@ -30,6 +36,9 @@ export type AutoReadingActivity = {
   strongRereadEvidence?: boolean;
   meaningfulActivity?: boolean;
 };
+
+type Db = NodePgDatabase<typeof schema>;
+type DbTransaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 @Injectable()
 export class UserBookStatusService {
@@ -251,8 +260,17 @@ export class UserBookStatusService {
     readingThreshold?: number | null,
     finishThreshold?: number | null,
     activity: AutoReadingActivity = {},
-  ): Promise<void> {
-    const existing = await this.repo.findOne(userId, bookId);
+    executor?: DbTransaction,
+  ): Promise<BookStatusChangedPayload[]> {
+    const existing = await this.repo.findOne(userId, bookId, executor);
+    // Inside a caller's transaction the status row is not durable yet: a rollback would leave
+    // an achievement awarded for a status that never committed. Defer the event to the caller
+    // on that path; standalone callers keep the upstream publish-immediately behavior.
+    const deferredEvents: BookStatusChangedPayload[] = [];
+    const publishStatusChanged = (payload: BookStatusChangedPayload): void => {
+      if (executor) deferredEvents.push(payload);
+      else this.achievementEvents.emit(ACHIEVEMENT_EVENT_BOOK_STATUS_CHANGED, payload);
+    };
 
     const normalizedPercentage = this.normalizePercentage(percentage);
     const { readThreshold, finishThreshold: normalizedFinishThreshold } = this.normalizeThresholds(readingThreshold, finishThreshold);
@@ -263,42 +281,46 @@ export class UserBookStatusService {
         : 'unread';
 
     if (this.attempts) {
-      const timeZone = activity.timeZone ?? (await this.repo.findUserTimeZone(userId));
-      const updated = await this.attempts.recordActivity({
-        userId,
-        bookId,
-        occurredOn: this.dayKeyFor(activity.occurredAt, timeZone),
-        origin: activity.origin ?? 'bookorbit',
-        progress: normalizedPercentage,
-        finishThreshold: normalizedFinishThreshold,
-        strongRereadEvidence: activity.strongRereadEvidence === true,
-        meaningfulActivity: activity.meaningfulActivity === true,
-        timeZone,
-      });
+      const timeZone = activity.timeZone ?? (await this.repo.findUserTimeZone(userId, executor));
+      const updated = await this.attempts.recordActivity(
+        {
+          userId,
+          bookId,
+          occurredOn: this.dayKeyFor(activity.occurredAt, timeZone),
+          origin: activity.origin ?? 'bookorbit',
+          progress: normalizedPercentage,
+          finishThreshold: normalizedFinishThreshold,
+          strongRereadEvidence: activity.strongRereadEvidence === true,
+          meaningfulActivity: activity.meaningfulActivity === true,
+          timeZone,
+        },
+        executor,
+      );
       if (updated && updated.status !== (existing?.status ?? null)) {
-        this.achievementEvents.emit(ACHIEVEMENT_EVENT_BOOK_STATUS_CHANGED, {
+        publishStatusChanged({
           userId,
           bookId,
           newStatus: updated.status,
           previousStatus: existing?.status ?? null,
         });
       }
-      return;
+      return deferredEvents;
     }
 
-    if (existing?.source === 'manual' && (existing.status !== 'want_to_read' || derived === 'unread')) return;
+    if (existing?.source === 'manual' && (existing.status !== 'want_to_read' || derived === 'unread')) return deferredEvents;
 
-    if (!existing && derived === 'unread') return;
-    if (existing?.status === derived) return;
+    if (!existing && derived === 'unread') return deferredEvents;
+    if (existing?.status === derived) return deferredEvents;
 
     const previousStatus = existing?.status ?? null;
-    await this.repo.upsert(userId, bookId, derived, 'auto', new Date(), existing);
-    this.achievementEvents.emit(ACHIEVEMENT_EVENT_BOOK_STATUS_CHANGED, {
+    await this.repo.upsert(userId, bookId, derived, 'auto', new Date(), existing, executor);
+    publishStatusChanged({
       userId,
       bookId,
       newStatus: derived,
       previousStatus,
     });
+    return deferredEvents;
   }
 
   /**

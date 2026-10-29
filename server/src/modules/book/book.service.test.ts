@@ -3350,11 +3350,15 @@ describe('BookService', () => {
         expect.any(Date),
       );
       expect(libraryService.findOne).toHaveBeenCalledWith(2);
-      expect(userBookStatusService.autoUpdate).toHaveBeenCalledWith(user.id, 11, 50, 3, 97, {
-        origin: 'bookorbit',
-        timeZone: 'UTC',
-        strongRereadEvidence: false,
-      });
+      expect(userBookStatusService.autoUpdate).toHaveBeenCalledOnce();
+      expect(userBookStatusService.autoUpdate.mock.calls[0]?.slice(0, 6)).toEqual([
+        user.id,
+        11,
+        50,
+        3,
+        97,
+        { origin: 'bookorbit', timeZone: 'UTC', strongRereadEvidence: false },
+      ]);
     });
 
     it('does not fail progress save when auto status update fails', async () => {
@@ -3387,11 +3391,15 @@ describe('BookService', () => {
         null,
         expect.any(Date),
       );
-      expect(userBookStatusService.autoUpdate).toHaveBeenCalledWith(user.id, 11, 50, 3, 97, {
-        origin: 'bookorbit',
-        timeZone: 'UTC',
-        strongRereadEvidence: false,
-      });
+      expect(userBookStatusService.autoUpdate).toHaveBeenCalledOnce();
+      expect(userBookStatusService.autoUpdate.mock.calls[0]?.slice(0, 6)).toEqual([
+        user.id,
+        11,
+        50,
+        3,
+        97,
+        { origin: 'bookorbit', timeZone: 'UTC', strongRereadEvidence: false },
+      ]);
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[book.progress_status_update] [fail] userId=1 bookId=11 libraryId=2'));
       warnSpy.mockRestore();
     });
@@ -3422,11 +3430,15 @@ describe('BookService', () => {
       );
 
       expect(bookRepo.syncKoboReadingStateFromProgress).toHaveBeenCalledWith(user.id, 8, 50, 'OEBPS/ch1.xhtml', 'KoboSpan', 'kobo.25.1', 25);
-      expect(userBookStatusService.autoUpdate).toHaveBeenCalledWith(user.id, 11, 50, 4, 90, {
-        origin: 'bookorbit',
-        timeZone: 'UTC',
-        strongRereadEvidence: false,
-      });
+      expect(userBookStatusService.autoUpdate).toHaveBeenCalledOnce();
+      expect(userBookStatusService.autoUpdate.mock.calls[0]?.slice(0, 6)).toEqual([
+        user.id,
+        11,
+        50,
+        4,
+        90,
+        { origin: 'bookorbit', timeZone: 'UTC', strongRereadEvidence: false },
+      ]);
     });
 
     it.each(['epub', 'kepub'])('does not mirror %s percentage to Kobo state when two-way sync is disabled', async (format) => {
@@ -3503,11 +3515,15 @@ describe('BookService', () => {
         await service.saveProgress(user.id, 8, { percentage: 2.43, source: 'narration' } as never, user);
 
         expect(bookRepo.syncKoboReadingStateFromProgress).toHaveBeenCalledWith(user.id, 8, 32, null, null, null, null);
-        expect(userBookStatusService.autoUpdate).toHaveBeenCalledWith(user.id, 11, 32, 4, 90, {
-          origin: 'bookorbit',
-          timeZone: 'UTC',
-          strongRereadEvidence: false,
-        });
+        expect(userBookStatusService.autoUpdate).toHaveBeenCalledOnce();
+        expect(userBookStatusService.autoUpdate.mock.calls[0]?.slice(0, 6)).toEqual([
+          user.id,
+          11,
+          32,
+          4,
+          90,
+          { origin: 'bookorbit', timeZone: 'UTC', strongRereadEvidence: false },
+        ]);
       });
 
       it('treats a narration write on a file with no stored position as progress', async () => {

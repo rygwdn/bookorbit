@@ -68,6 +68,7 @@ import {
 type Db = NodePgDatabase<typeof schema>;
 type DbTransaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 type MetadataUpdateExecutor = Pick<Db, 'delete' | 'insert' | 'select' | 'update'>;
+type KoboSyncExecutor = Pick<Db, 'select' | 'insert' | 'execute'> | DbTransaction;
 type MetadataReadExecutor = Pick<Db, 'select'>;
 type JsonObj = Record<string, unknown>;
 type BookRepositoryTx = Parameters<Parameters<NodePgDatabase<typeof schema>['transaction']>[0]>[0];
@@ -2672,8 +2673,9 @@ export class BookRepository {
     koboLocationType?: string | null,
     koboLocationValue?: string | null,
     koboContentSourceProgressPercent?: number | null,
+    executor: KoboSyncExecutor = this.db,
   ): Promise<boolean> {
-    const [file] = await this.db
+    const [file] = await executor
       .select({
         bookId: bookFiles.bookId,
         primaryFileId: books.primaryFileId,
@@ -2699,7 +2701,7 @@ export class BookRepository {
 
     const now = new Date();
 
-    const [existing] = await this.db
+    const [existing] = await executor
       .select({
         entitlementId: koboReadingStates.entitlementId,
         createdAtKobo: koboReadingStates.createdAtKobo,
@@ -2771,7 +2773,7 @@ export class BookRepository {
     };
     const statistics = this.asJsonObj(existing?.statistics) ?? { LastModified: nowIso };
 
-    await this.db
+    await executor
       .insert(koboReadingStates)
       .values({
         userId,
@@ -2797,12 +2799,12 @@ export class BookRepository {
         },
       });
 
-    await this.markKoboSnapshotBookUnsyncedForReadingState(userId, file.bookId);
+    await this.markKoboSnapshotBookUnsyncedForReadingState(userId, file.bookId, executor);
     return true;
   }
 
-  async isKoboTwoWayProgressSyncEnabled(userId: number): Promise<boolean> {
-    const [settings] = await this.db
+  async isKoboTwoWayProgressSyncEnabled(userId: number, executor: Pick<Db, 'select'> | DbTransaction = this.db): Promise<boolean> {
+    const [settings] = await executor
       .select({ twoWayProgressSync: koboSyncSettings.twoWayProgressSync })
       .from(koboSyncSettings)
       .where(eq(koboSyncSettings.userId, userId))
@@ -3002,8 +3004,12 @@ export class BookRepository {
     return percentage > 0 ? 'Reading' : 'ReadyToRead';
   }
 
-  private async markKoboSnapshotBookUnsyncedForReadingState(userId: number, bookId: number): Promise<void> {
-    await this.db.execute(sql`
+  private async markKoboSnapshotBookUnsyncedForReadingState(
+    userId: number,
+    bookId: number,
+    executor: Pick<Db, 'execute'> | DbTransaction = this.db,
+  ): Promise<void> {
+    await executor.execute(sql`
       UPDATE ${koboSnapshotBooks} AS sb
       SET synced = false,
           is_new = false

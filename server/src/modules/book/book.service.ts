@@ -1,4 +1,8 @@
+import type { BookStatusChangedPayload } from '../achievement/achievement-events.service';
 import { ReadingAttemptEventsService } from '../user-book-status/reading-attempt-events.service';
+
+type Db = NodePgDatabase<typeof schema>;
+type DbTransaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 import {
   BadRequestException,
   ForbiddenException,
@@ -13,6 +17,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { mkdtemp, rm, stat, rename } from 'fs/promises';
 import { inArray, type SQL } from 'drizzle-orm';
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import type * as schema from '../../db/schema';
 
 import { MAX_BOOK_QUERY_OFFSET_ROWS, isBookQueryOffsetWithinLimit } from '../../common/constants/pagination.constants';
 import { chapterProvenance, normalizeAudiobookChapters, resolveStoredAudiobookChapters } from '../../common/utils/audiobook-chapters.utils';
@@ -2367,23 +2373,30 @@ export class BookService {
     file: ProgressStatusFileContext,
     percentage: number,
     activity: AutoReadingActivity = {},
-  ): Promise<void> {
+    executor?: DbTransaction,
+  ): Promise<BookStatusChangedPayload[]> {
     const startedAt = Date.now();
     try {
       const library = await this.libraryService.findOne(file.libraryId);
-      await this.userBookStatusService.autoUpdate(
+      const deferredEvents = await this.userBookStatusService.autoUpdate(
         userId,
         file.bookId,
         percentage,
         library.readingThreshold,
         library.markAsFinishedPercentComplete,
         activity,
+        executor,
       );
+      return deferredEvents;
     } catch (error: unknown) {
+      // Inside a caller's transaction the effect failure must roll the whole update back;
+      // standalone callers keep the fire-and-forget behavior.
+      if (executor) throw error;
       const err = error instanceof Error ? error : new Error(String(error));
       this.logger.warn(
         `[book.progress_status_update] [fail] userId=${userId} bookId=${file.bookId} libraryId=${file.libraryId} durationMs=${Date.now() - startedAt} errorClass=${err.constructor.name} error="${sanitizeLogValue(err.message)}" - auto status update failed`,
       );
+      return [];
     }
   }
 
@@ -2392,9 +2405,9 @@ export class BookService {
    * Percent-only: the precise KoboSpan Location is computed at delivery time by the
    * Kobo reading-state pull path.
    */
-  async syncKoboReadingStateForExternalProgress(userId: number, fileId: number, percentage: number): Promise<void> {
-    if (!(await this.bookRepo.isKoboTwoWayProgressSyncEnabled(userId))) return;
-    await this.bookRepo.syncKoboReadingStateFromProgress(userId, fileId, percentage, null, null, null, null);
+  async syncKoboReadingStateForExternalProgress(userId: number, fileId: number, percentage: number, executor?: DbTransaction): Promise<void> {
+    if (!(await this.bookRepo.isKoboTwoWayProgressSyncEnabled(userId, executor))) return;
+    await this.bookRepo.syncKoboReadingStateFromProgress(userId, fileId, percentage, null, null, null, null, executor);
   }
 
   /**

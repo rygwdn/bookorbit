@@ -10,6 +10,7 @@ import type { ReadStatus, ReadStatusSource } from '@bookorbit/types';
 import type { UserBookStatusRow } from '../../db/schema';
 
 type Db = NodePgDatabase<typeof schema>;
+type DbTransaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 export type UserBookStatusLifecycle = Pick<UserBookStatusRow, 'startedAt' | 'finishedAt'>;
 export type UserBookStatusState = Pick<UserBookStatusRow, 'status' | 'source' | 'startedAt' | 'finishedAt' | 'updatedAt'>;
@@ -44,8 +45,8 @@ export function deriveLifecycle(
 export class UserBookStatusRepository {
   constructor(@Inject(DB) private readonly db: Db) {}
 
-  async findOne(userId: number, bookId: number) {
-    const [row] = await this.db
+  async findOne(userId: number, bookId: number, executor: Pick<Db, 'select'> | DbTransaction = this.db) {
+    const [row] = await executor
       .select()
       .from(userBookStatus)
       .where(and(eq(userBookStatus.userId, userId), eq(userBookStatus.bookId, bookId)))
@@ -58,8 +59,8 @@ export class UserBookStatusRepository {
    * one has to resolve it. Device syncs carry no request user, so it is read here rather than
    * threaded from the caller: a caller that forgets would silently file the day in UTC.
    */
-  async findUserTimeZone(userId: number): Promise<string> {
-    const [row] = await this.db.select({ settings: users.settings }).from(users).where(eq(users.id, userId)).limit(1);
+  async findUserTimeZone(userId: number, executor: Pick<Db, 'select'> | DbTransaction = this.db): Promise<string> {
+    const [row] = await executor.select({ settings: users.settings }).from(users).where(eq(users.id, userId)).limit(1);
     return resolveTimeZone((row?.settings as { timezone?: unknown } | undefined)?.timezone, 'UTC');
   }
 
@@ -71,8 +72,12 @@ export class UserBookStatusRepository {
       .where(and(eq(userBookStatus.userId, userId), inArray(userBookStatus.bookId, bookIds)));
   }
 
-  async findSessionBoundariesForBook(userId: number, bookId: number): Promise<SessionBoundaries> {
-    const [row] = await this.db
+  async findSessionBoundariesForBook(
+    userId: number,
+    bookId: number,
+    executor: Pick<Db, 'select'> | DbTransaction = this.db,
+  ): Promise<SessionBoundaries> {
+    const [row] = await executor
       .select({
         firstStartedAt: min(readingSessions.startedAt),
         lastEndedAt: max(readingSessions.endedAt),
@@ -93,15 +98,16 @@ export class UserBookStatusRepository {
     source: ReadStatusSource,
     now: Date,
     existing?: Awaited<ReturnType<typeof this.findOne>>,
+    executor: Pick<Db, 'select' | 'insert'> | DbTransaction = this.db,
   ): Promise<void> {
-    const row = existing !== undefined ? existing : await this.findOne(userId, bookId);
+    const row = existing !== undefined ? existing : await this.findOne(userId, bookId, executor);
 
     const needsSessionBoundaries = status !== 'unread' && status !== 'want_to_read' && row?.startedAt == null;
-    const sessionBoundaries = needsSessionBoundaries ? await this.findSessionBoundariesForBook(userId, bookId) : undefined;
+    const sessionBoundaries = needsSessionBoundaries ? await this.findSessionBoundariesForBook(userId, bookId, executor) : undefined;
 
     const { startedAt, finishedAt } = deriveLifecycle(status, now, row, sessionBoundaries);
 
-    await this.db
+    await executor
       .insert(userBookStatus)
       .values({ userId, bookId, status, source, startedAt, finishedAt, updatedAt: now })
       .onConflictDoUpdate({

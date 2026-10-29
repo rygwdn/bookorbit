@@ -4,9 +4,12 @@ import type { OpdsFeed, OpdsLink, OpdsPublication } from '@bookorbit/types';
 import { htmlToPlainText } from '../../common/utils/html-to-text.utils';
 import type { OpdsBookEntry } from './opds-book.service';
 import { fileMimeType } from './opds-xml.helpers';
+import { AUTHENTICATION_HREF } from './opds-http';
 
 export const OPDS2_BASE = '/api/v1/opds/v2';
 export const OPDS2_TYPE = 'application/opds+json';
+export const PROGRESSION_TYPE = 'application/opds-progression+json';
+export const PROGRESSION_REL = 'http://opds-spec.org/progression';
 
 @Injectable()
 export class Opds2Service {
@@ -79,7 +82,16 @@ export class Opds2Service {
         href: `/api/v1/opds/${book.id}/download?fileId=${file.id}`,
         type: fileMimeType(file.format),
         rel: 'acquisition',
+        properties: {
+          'https://bookorbit.app/ns/progression': `/api/v1/opds/${book.id}/progression?fileId=${file.id}`,
+        },
       })),
+      {
+        href: `/api/v1/opds/${book.id}/progression`,
+        rel: PROGRESSION_REL,
+        type: PROGRESSION_TYPE,
+        properties: { authenticate: { href: AUTHENTICATION_HREF, type: 'application/opds-authentication+json' } },
+      },
     ];
     return {
       metadata,
