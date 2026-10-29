@@ -4,8 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RequestUser } from '../../common/types/request-user';
 import { BookService } from '../book/book.service';
 import { ReadingSessionRepository, type ReadingSessionSyncOptions, type SaveReadingSessionResult } from './reading-session.repository';
+import type { OpdsReadingStatsBatch } from '@bookorbit/types';
 import { ReadingSessionService } from './reading-session.service';
-import { EMPTY_CONTENT_FILTER_RULES, type ReadingSessionSource } from '@bookorbit/types';
+import { EMPTY_CONTENT_FILTER_RULES, OPDS_READING_STATS_BATCH_MAX, type ReadingSessionSource } from '@bookorbit/types';
 
 function makeUser(overrides?: Partial<RequestUser>): RequestUser {
   return {
@@ -28,6 +29,8 @@ function makeUser(overrides?: Partial<RequestUser>): RequestUser {
 }
 
 const mockRepo = {
+  findOpdsFile: vi.fn(),
+  saveOpdsBatch: vi.fn(),
   saveSession:
     vi.fn<
       (
@@ -50,6 +53,7 @@ const mockRepo = {
 };
 
 const mockBookService = {
+  verifyBookAccess: vi.fn(),
   verifyFileAccess: vi.fn<(...args: [number, RequestUser]) => Promise<void>>(),
 };
 
@@ -583,5 +587,94 @@ describe('ReadingSessionService - read status activity', () => {
     await saveFinishingSession(makeUser({ id: 12 }));
 
     expect(bookService.autoUpdateReadStatusForProgress.mock.calls[0]?.[3]?.timeZone).toBe('UTC');
+  });
+});
+
+describe('ReadingSessionService - saveOpdsBatch', () => {
+  let service: ReadingSessionService;
+  const achievement = { emit: vi.fn() };
+  const file = { id: 12, bookId: 42, libraryId: 3 };
+  const statsSession = {
+    id: 'c38cbe7a-2051-42be-91e2-8571ba992825',
+    started: '2026-01-01T12:00:00Z',
+    ended: '2026-01-01T12:01:00Z',
+    activeSeconds: 50,
+    pagesTurned: 3,
+    endProgression: 1,
+  };
+  const batch: OpdsReadingStatsBatch = { version: 1, device: { id: 'urn:test:reader', name: 'Reader' }, sessions: [statsSession] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBookService.verifyFileAccess.mockResolvedValue(undefined);
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+    service = new ReadingSessionService(
+      mockRepo as unknown as ReadingSessionRepository,
+      mockBookService as unknown as BookService,
+      achievement as never,
+      mockUserStatistics as never,
+    );
+  });
+
+  it('persists an OPDS batch and emits achievement events', async () => {
+    mockBookService.verifyBookAccess.mockResolvedValue(undefined);
+    mockRepo.findOpdsFile.mockResolvedValue(file);
+    const saved = [
+      {
+        sessionId: 'stored',
+        startedAt: new Date(statsSession.started),
+        endedAt: new Date(statsSession.ended),
+        durationSeconds: 50,
+        progressDelta: 100,
+        endProgress: 100,
+      },
+    ];
+    mockRepo.saveOpdsBatch.mockResolvedValue(saved);
+    const receipt = await service.saveOpdsBatch(42, 12, batch, makeUser({ id: 7 }));
+    expect(mockBookService.verifyBookAccess).toHaveBeenCalledWith(42, expect.objectContaining({ id: 7 }));
+    expect(mockRepo.saveOpdsBatch).toHaveBeenCalledWith(7, file, batch, 'UTC');
+    expect(achievement.emit).toHaveBeenCalledWith(
+      'reading-session.saved',
+      expect.objectContaining({ bookFileId: 12, durationSeconds: 50, timezone: 'UTC' }),
+    );
+    expect(receipt).toEqual({ version: 1, accepted: [statsSession.id] });
+  });
+
+  it('rejects oversized batches before persistence', async () => {
+    const oversized: OpdsReadingStatsBatch = {
+      ...batch,
+      sessions: Array.from({ length: OPDS_READING_STATS_BATCH_MAX + 1 }, (_, i) => ({ ...statsSession, id: `s${i}` })),
+    };
+    await expect(service.saveOpdsBatch(42, 12, oversized, makeUser())).rejects.toBeInstanceOf(BadRequestException);
+    expect(mockRepo.saveOpdsBatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects duplicate session ids inside a batch', async () => {
+    const duplicated: OpdsReadingStatsBatch = { ...batch, sessions: [statsSession, { ...statsSession }] };
+    await expect(service.saveOpdsBatch(42, 12, duplicated, makeUser())).rejects.toBeInstanceOf(BadRequestException);
+    expect(mockRepo.saveOpdsBatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects sessions whose active time exceeds the span or lies in the future', async () => {
+    const future: OpdsReadingStatsBatch = {
+      ...batch,
+      sessions: [{ ...statsSession, ended: new Date(Date.now() + 3_600_000).toISOString(), activeSeconds: 50 }],
+    };
+    await expect(service.saveOpdsBatch(42, 12, future, makeUser())).rejects.toBeInstanceOf(BadRequestException);
+    const overActive: OpdsReadingStatsBatch = {
+      ...batch,
+      sessions: [{ ...statsSession, ended: '2026-01-01T12:00:30Z', activeSeconds: 50 }],
+    };
+    await expect(service.saveOpdsBatch(42, 12, overActive, makeUser())).rejects.toBeInstanceOf(BadRequestException);
+    expect(mockRepo.saveOpdsBatch).not.toHaveBeenCalled();
+  });
+
+  it('fails when the publication file cannot be resolved', async () => {
+    mockBookService.verifyBookAccess.mockResolvedValue(undefined);
+    mockRepo.findOpdsFile.mockResolvedValue(null);
+    await expect(service.saveOpdsBatch(42, 12, batch, makeUser())).rejects.toBeInstanceOf(NotFoundException);
+    expect(mockRepo.saveOpdsBatch).not.toHaveBeenCalled();
   });
 });

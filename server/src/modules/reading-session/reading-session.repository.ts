@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { createHash } from 'crypto';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, lte, max, min, notLike, sql, type SQL } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
@@ -9,6 +10,7 @@ import type {
   BookReadingSourceSlice,
   ReadingSessionSource,
   ReadingSessionType,
+  OpdsReadingStatsBatch,
 } from '@bookorbit/types';
 import { READING_SESSION_SOURCE_BUCKETS, READING_SESSION_TYPES, emptySourceBucketRecord, toReadingSessionSourceBucket } from '@bookorbit/types';
 import {
@@ -19,6 +21,7 @@ import {
   type ReadingDailyStatsSegment,
 } from '../../common/utils/reading-daily-stats.utils';
 import { parseKoreaderSessionId } from '../../common/utils/koreader-session-id.utils';
+import { canonicalJson } from '../../common/provider-cache/canonicalize';
 import { resolveTimeZone, toDateKeyInTimeZone } from '../../common/utils/timezone.utils';
 import { DB } from '../../db';
 import * as schema from '../../db/schema';
@@ -983,6 +986,88 @@ export class ReadingSessionRepository {
     if (affectedDays.size > 0) {
       await this.recomputeDailyStats(tx, params.userId, params.libraryId, [...affectedDays], params.timeZone);
     }
+  }
+
+  async findOpdsFile(bookId: number, fileId?: number) {
+    const [file] = await this.db
+      .select({ id: bookFiles.id, bookId: books.id, libraryId: books.libraryId })
+      .from(bookFiles)
+      .innerJoin(books, eq(bookFiles.bookId, books.id))
+      .where(
+        and(
+          eq(books.id, bookId),
+          eq(books.status, 'present'),
+          eq(bookFiles.role, 'content'),
+          fileId !== undefined ? eq(bookFiles.id, fileId) : eq(bookFiles.id, books.primaryFileId),
+        ),
+      )
+      .limit(1);
+    return file ?? null;
+  }
+
+  // Device stats arrive as batches keyed by client-generated session UUIDs. Session ids are
+  // namespaced by device hash, so two devices can never collide; replaying a batch is a no-op
+  // and reusing an id with different data is a conflict instead of silent overcounting.
+  async saveOpdsBatch(userId: number, file: { id: number; bookId: number; libraryId: number }, batch: OpdsReadingStatsBatch, timeZone: string) {
+    const rows = batch.sessions
+      .map((session) => ({
+        userId,
+        bookFileId: file.id,
+        bookId: file.bookId,
+        sessionId: createHash('sha256').update(batch.device.id).update('\0').update(session.id).digest('hex'),
+        source: 'opds' as const,
+        startedAt: new Date(session.started),
+        endedAt: new Date(session.ended),
+        durationSeconds: session.activeSeconds,
+        progressDelta:
+          session.startProgression != null && session.endProgression != null ? (session.endProgression - session.startProgression) * 100 : null,
+        endProgress: session.endProgression != null ? session.endProgression * 100 : null,
+        externalStats: { device: batch.device, session },
+      }))
+      .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+    return this.db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(readingSessions)
+        .values(rows)
+        .onConflictDoNothing({ target: [readingSessions.userId, readingSessions.sessionId] })
+        .returning({
+          sessionId: readingSessions.sessionId,
+          externalStats: readingSessions.externalStats,
+          startedAt: readingSessions.startedAt,
+          endedAt: readingSessions.endedAt,
+          durationSeconds: readingSessions.durationSeconds,
+          progressDelta: readingSessions.progressDelta,
+          endProgress: readingSessions.endProgress,
+        });
+      const stored = await tx
+        .select({ sessionId: readingSessions.sessionId, bookFileId: readingSessions.bookFileId, externalStats: readingSessions.externalStats })
+        .from(readingSessions)
+        .where(
+          and(
+            eq(readingSessions.userId, userId),
+            inArray(
+              readingSessions.sessionId,
+              rows.map((row) => row.sessionId),
+            ),
+          ),
+        );
+      const byId = new Map(stored.map((row) => [row.sessionId, row]));
+      for (const row of rows) {
+        const previous = byId.get(row.sessionId);
+        // The stored batch is a plain JSONB value while the request arrives as class-transformer
+        // DTO instances (nested device/session prototypes) and jsonb reorders object keys;
+        // compare canonical JSON so an identical replay stays a no-op and only genuinely
+        // different data conflicts.
+        if (previous?.bookFileId !== file.id || canonicalJson(previous.externalStats) !== canonicalJson(row.externalStats))
+          throw new ConflictException('A reading session ID was already used with different data');
+      }
+      if (inserted.length) {
+        await this.lockDailyStats(tx, userId, file.libraryId);
+        const segments = aggregateReadingSessionDailyStats(inserted, timeZone);
+        await this.insertDailyStatsSegments(tx, userId, file.libraryId, segments, 'increment');
+      }
+      return inserted;
+    });
   }
 
   private async lockDailyStats(tx: Tx, userId: number, libraryId: number): Promise<void> {

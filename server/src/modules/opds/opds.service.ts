@@ -1,3 +1,4 @@
+import { OPDS_READING_STATS_REL, OPDS_READING_STATS_TYPE } from '@bookorbit/types';
 import { Injectable, Optional } from '@nestjs/common';
 
 import { esc, fileMimeType, OPDS_MIME_ACQ, OPDS_MIME_ATOM, OPDS_MIME_NAV, OPDS_MIME_SEARCH, xmlEl, xmlLink } from './opds-xml.helpers';
@@ -254,6 +255,7 @@ export class OpdsService {
       lines.push(`  ${xmlLink('http://opds-spec.org/acquisition', href, mime, label)}`);
     }
 
+    lines.push(`  ${xmlLink(OPDS_READING_STATS_REL, `${BASE}/${book.id}/stats`, OPDS_READING_STATS_TYPE)}`);
     lines.push(`  ${xmlLink('http://opds-spec.org/progression', `${BASE}/${book.id}/progression`, 'application/opds-progression+json')}`);
     lines.push('</entry>');
     return lines.join('\n');

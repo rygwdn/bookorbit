@@ -100,7 +100,28 @@ document (`GET /api/v1/opds/authentication`,
 `application/opds-authentication+json`, HTTP Basic), 400/409 are
 `application/problem+json` documents.
 
-## What stage 2 does not cover
+## Reading statistics (stage 3)
+
+OPDS 2 clients that implement device reading statistics can ingest their reading history.
+
+### Advertisement
+
+- Feed level: each publication carries a link `rel="https://bookorbit.app/rel/reading-stats"`, `type="application/vnd.bookorbit.reading-stats+json"`, `href="/api/v1/opds/:bookId/stats"` with `properties.authenticate` pointing at the OPDS authentication document.
+- File level: the acquisition link carries `properties["https://bookorbit.app/ns/reading-stats"] = "/api/v1/opds/:bookId/stats?fileId=:fileId"`.
+
+### Ingestion
+
+- `POST /api/v1/opds/:bookId/stats?fileId=:fileId` with `Content-Type: application/vnd.bookorbit.reading-stats+json`.
+- Body: `{ version: 1, device: { id, name }, sessions: [...] }`, 1 to 16 unique sessions per batch. Each session needs ISO timestamps (span 1 s to 7 days, not more than 5 minutes in the future), `activeSeconds <= span`, optional fractional `startProgression`/`endProgression` in [0, 1].
+- Errors use Problem Details (`application/problem+json`), including JSON parser errors (`type: https://bookorbit.app/errors/reading-stats`).
+- Sessions are stored with `source = 'opds'` and their id is namespaced by the device id (SHA-256 of device id + session id), so two devices can never collide. Replaying an identical batch is acknowledged without double counting; reusing an id with different data or for another file returns 409.
+- Response: `200` with a receipt `{ version: 1, accepted: ["<session ids>"] }`.
+- Ingested sessions appear in the reading log source buckets as `OPDS`, in daily statistics, streaks and achievement events like any other reading session.
+
+### Stage 3 limitations
+
+- Progress snapshots live on the progression endpoint; statistics batches do not write reading progress.
+- Only per-session statistics are ingested; aggregate device reports are not.
 
 Reading-statistics documents (custom session stats), per-device stat
 ingestion and their schema are the next stage; acquisition links advertise

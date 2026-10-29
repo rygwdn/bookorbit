@@ -932,6 +932,13 @@
       "when": 1793234286653,
       "tag": "0132_add_opds_progression",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1793234638104,
+      "tag": "0133_add_opds_reading_stats",
+      "breakpoints": true
     }
   ]
 }
