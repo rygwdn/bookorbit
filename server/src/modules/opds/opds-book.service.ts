@@ -44,6 +44,12 @@ type OpdsBookFilters = {
   excludeAudioOnly?: boolean;
 };
 
+/** Keyset-free offset pagination for catalog list endpoints. */
+export interface CatalogPage {
+  limit: number;
+  offset: number;
+}
+
 /** Narrows a catalog query to what one reader's device can use. Absent keeps every book. */
 export interface CatalogVisibilityOptions {
   excludeAudioOnly?: boolean;
@@ -298,9 +304,9 @@ export class OpdsBookService {
     return rows.map((r) => r.libraryId);
   }
 
-  async getAccessibleLibraries(userId: number, isSuperuser = false) {
+  async getAccessibleLibraries(userId: number, isSuperuser = false, page?: CatalogPage) {
     if (isSuperuser) {
-      return this.db
+      const query = this.db
         .select({
           id: libraries.id,
           name: libraries.name,
@@ -310,8 +316,9 @@ export class OpdsBookService {
         .leftJoin(books, and(eq(books.libraryId, libraries.id), eq(books.status, 'present')))
         .groupBy(libraries.id)
         .orderBy(libraries.name);
+      return page ? query.limit(page.limit).offset(page.offset) : query;
     }
-    return this.db
+    const query = this.db
       .select({
         id: libraries.id,
         name: libraries.name,
@@ -322,6 +329,7 @@ export class OpdsBookService {
       .leftJoin(books, and(eq(books.libraryId, libraries.id), eq(books.status, 'present')))
       .groupBy(libraries.id)
       .orderBy(libraries.name);
+    return page ? query.limit(page.limit).offset(page.offset) : query;
   }
 
   async getBooksPage(
@@ -1134,13 +1142,20 @@ export class OpdsBookService {
     return row ?? null;
   }
 
-  async getUserCollections(userId: number, isSuperuser = false, contentFilters?: ContentFilterRules, options: CatalogVisibilityOptions = {}) {
-    return this.collectionRepository.findVisibleForUser(
+  async getUserCollections(
+    userId: number,
+    isSuperuser = false,
+    contentFilters?: ContentFilterRules,
+    options: CatalogVisibilityOptions = {},
+    page?: CatalogPage,
+  ) {
+    const query = this.collectionRepository.findVisibleForUser(
       userId,
       isSuperuser,
       contentFilters,
       options.excludeAudioOnly ? [excludeAudioOnlyBooks()] : [],
     );
+    return page ? query.limit(page.limit).offset(page.offset) : query;
   }
 
   // Badge counts only need the totals, so these skip the per-entity book counts
@@ -1240,8 +1255,8 @@ export class OpdsBookService {
     return Number(row?.total ?? 0);
   }
 
-  async getUserSmartScopes(userId: number) {
-    return this.db
+  async getUserSmartScopes(userId: number, page?: CatalogPage) {
+    const query = this.db
       .select({
         id: smartScopes.id,
         name: smartScopes.name,
@@ -1250,6 +1265,7 @@ export class OpdsBookService {
       .from(smartScopes)
       .where(and(eq(smartScopes.mediaType, 'books'), or(eq(smartScopes.userId, userId), eq(smartScopes.isPublic, true))))
       .orderBy(smartScopes.name);
+    return page ? query.limit(page.limit).offset(page.offset) : query;
   }
 
   async validateBookAccess(bookId: number, userId: number, isSuperuser = false, contentFilters?: ContentFilterRules): Promise<void> {

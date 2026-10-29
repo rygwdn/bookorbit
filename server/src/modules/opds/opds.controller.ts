@@ -13,6 +13,9 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
+
 import { createReadStream } from 'fs';
 import { mkdtemp, rm, stat } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -36,6 +39,7 @@ import { AudiolessEpubService } from '../book/audioless-epub.service';
 import { BookService } from '../book/book.service';
 import { sanitizeLogValue } from '../../common/utils/log-sanitize.utils';
 import { BookCoverStore } from '../book-cover-store/book-cover-store.service';
+import { deviceCoverFromPath } from '../../common/device-cover';
 
 @Controller('opds')
 @Public()
@@ -46,6 +50,7 @@ export class OpdsController {
     private readonly opdsBookService: OpdsBookService,
     private readonly bookService: BookService,
     private readonly coverStore: BookCoverStore,
+    private readonly config: ConfigService,
     @Optional() private readonly audiolessEpubService?: AudiolessEpubService,
     @Optional() private readonly selections?: DeliverySelectionService,
   ) {}
@@ -222,6 +227,30 @@ export class OpdsController {
   searchDescription(@OpdsUser() _user: OpdsRequestUser, @Res() reply: FastifyReply) {
     const xml = this.opdsService.generateOpenSearchDescription();
     reply.type(`${OPDS_MIME_SEARCH}; charset=utf-8`).send(xml);
+  }
+
+  // Device-sized cover for OPDS readers: 160x240 JPEG derived from the face cover, cached by
+  // content hash so devices revalidate cheaply.
+  @Get(':bookId/device-cover')
+  async deviceCover(
+    @Param('bookId', ParseIntPipe) bookId: number,
+    @OpdsUser() user: OpdsRequestUser,
+    @Res() reply: FastifyReply,
+    @Headers('if-none-match') previous?: string,
+  ) {
+    await this.opdsBookService.validateBookAccess(bookId, user.userId, user.isSuperuser, user.contentFilters);
+    reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
+    const sourcePath = await this.coverStore.resolve(bookId, {
+      medium: await this.coverStore.faceMediumFor(bookId),
+      variant: 'cover',
+    });
+    if (!sourcePath) throw new NotFoundException('No cover');
+    const appDataPath = this.config.get<string>('storage.appDataPath') ?? '/data';
+    const bytes = await deviceCoverFromPath(appDataPath, bookId, sourcePath);
+    const etag = `"${createHash('sha256').update(bytes).digest('hex')}"`;
+    reply.header('Cache-Control', 'private, no-cache').header('Vary', 'Authorization').header('ETag', etag);
+    if (etag === previous) return reply.status(304).send();
+    return reply.type('image/jpeg').send(bytes);
   }
 
   @Get(':bookId/cover')
