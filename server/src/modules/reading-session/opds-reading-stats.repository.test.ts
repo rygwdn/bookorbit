@@ -21,7 +21,7 @@ const batch: OpdsReadingStatsBatch = {
     },
   ],
 };
-function setup(duplicate = false, conflict = false, storedExternalStats: unknown = { device: batch.device, session }) {
+function setup(duplicate = false, conflict = false, storedExternalStats: unknown = { device: batch.device, session: batch.sessions[0] }) {
   const session = batch.sessions[0];
   const row = {
     userId: 42,
